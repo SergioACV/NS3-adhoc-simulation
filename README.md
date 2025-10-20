@@ -30,3 +30,11 @@ basic ns-3 (netanim and ns-3-dev) is to type:
 ./build.py --enable-examples --enable-tests
 ```
 and change directory to ns-3-dev for further work.
+
+Simluation until now
+
+
+
+https://github.com/user-attachments/assets/b2aee35f-6bff-4f21-be5d-af46993f2b06
+
+
