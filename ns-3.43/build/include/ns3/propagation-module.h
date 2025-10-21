@@ -18,4 +18,6 @@
     #include <ns3/propagation-loss-model.h>
     #include <ns3/three-gpp-propagation-loss-model.h>
     #include <ns3/three-gpp-v2v-propagation-loss-model.h>
+    #include <ns3/multi-zone-propagation-loss-model.h>
+    #include <ns3/multi-zone-propagation-loss-model-helper.h>
 #endif 

@@ -12,15 +12,21 @@
 #include "ns3/netanim-module.h"
 #include "ns3/interference-helper.h"
 
+//Self-made modules
+#include "ns3/multi-zone-propagation-loss-model-helper.h"
+
 #include <cmath>
 
 using namespace ns3;
+
+static Ptr<MultiZonePropagationLossModel> g_multiZoneModel = 0;
 
 NS_LOG_COMPONENT_DEFINE("ManetRecolector");
 
 // ---------------------------
 // 🔹 Declaración de funciones
 // ---------------------------
+Ptr<YansWifiChannel> CreateMultiZoneChannel();
 void ConfigureWifiAdhoc(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy);
 void InstallWifiDevices(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy,
                         NodeContainer &sensors, NodeContainer &clusterHeads,
@@ -52,12 +58,51 @@ void RunSimulation(double simTime);
 // 🔸 Implementación
 // ---------------------------
 
+Ptr<YansWifiChannel> CreateMultiZoneChannel()
+{
+    Ptr<YansWifiChannel> channel = CreateObject<YansWifiChannel>();
+
+    // Modelo multi-zona
+    Ptr<MultiZonePropagationLossModel> multiZone = CreateObject<MultiZonePropagationLossModel>();
+
+    // ============================
+    //  Definición de zonas (círculos)
+    // ============================
+    // Cluster A - zona con poca pérdida (campo abierto)
+    multiZone->AddCircularZone(0.0, 0.0, 40.0, 40.0, 20.0);
+
+    // Cluster B - zona intermedia
+    multiZone->AddCircularZone(100.0, 0.0, 40.0, 60.0, 25.0);
+
+    // Cluster C - zona densa con árboles
+    multiZone->AddCircularZone(50.0, 86.6025403784, 40.0, 80.0, 30.0);
+
+    // Zona por defecto (fuera de los clusters)
+    multiZone->SetDefaultZone(100.0, 35.0);
+
+    // Guardar el puntero global para poder activarle efectos dinámicos (lluvia)
+    g_multiZoneModel = multiZone;
+
+    // Configurar el canal WiFi
+    channel->SetPropagationLossModel(multiZone);
+    channel->SetPropagationDelayModel(CreateObject<ConstantSpeedPropagationDelayModel>());
+
+    return channel;
+}
+
+
+
+
 void ConfigureWifiAdhoc(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy)
 {
     wifi.SetStandard(WIFI_STANDARD_80211b);
     wifiMac.SetType("ns3::AdhocWifiMac");
-    YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default();
-    wifiPhy.SetChannel(wifiChannel.Create());
+
+    // Crear canal usando el método auxiliar
+    Ptr<YansWifiChannel> channel = CreateMultiZoneChannel();
+
+    // Asignar el canal físico
+    wifiPhy.SetChannel(channel);
 }
 
 void InstallWifiDevices(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy,
@@ -253,11 +298,35 @@ SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, doubl
 
 void RunSimulation(double simTime)
 {
+    // Crear la animación NetAnim (solo para registrar nodos y tráfico)
     AnimationInterface anim("manet_recolector.xml");
+
+    // Tiempos de inicio y fin de la lluvia
+    double startRain = 20.0; // empieza la lluvia a los 20s
+    double endRain   = 40.0; // termina la lluvia a los 40s
+
+    // Aplicar efecto físico (aumenta pérdidas) en el modelo
+    if (g_multiZoneModel)
+    {
+        Simulator::Schedule(Seconds(startRain),
+                            &MultiZonePropagationLossModel::SetRainEffect,
+                            g_multiZoneModel, true);
+
+        Simulator::Schedule(Seconds(endRain),
+                            &MultiZonePropagationLossModel::SetRainEffect,
+                            g_multiZoneModel, false);
+    }
+    else
+    {
+        NS_LOG_WARN("g_multiZoneModel is null: CreateMultiZoneChannel() debe llamarse antes de RunSimulation()");
+    }
+
+    // Ejecutar la simulación
     Simulator::Stop(Seconds(simTime));
     Simulator::Run();
     Simulator::Destroy();
 }
+
 
 // ---------------------------
 // 🔹 Main

@@ -71,6 +71,8 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT
     "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/src/propagation/model/propagation-loss-model.h"
     "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/src/propagation/model/three-gpp-propagation-loss-model.h"
     "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/src/propagation/model/three-gpp-v2v-propagation-loss-model.h"
+    "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/src/propagation/model/multi-zone-propagation-loss-model.h"
+    "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/src/propagation/helper/multi-zone-propagation-loss-model-helper.h"
     "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/build/include/ns3/propagation-module.h"
     )
 endif()

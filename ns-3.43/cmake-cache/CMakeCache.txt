@@ -622,7 +622,7 @@ PDFLATEX:FILEPATH=PDFLATEX-NOTFOUND
 PKG_CONFIG_ARGN:STRING=
 
 //pkg-config executable
-PKG_CONFIG_EXECUTABLE:FILEPATH=PKG_CONFIG_EXECUTABLE-NOTFOUND
+PKG_CONFIG_EXECUTABLE:FILEPATH=/opt/homebrew/bin/pkg-config
 
 //Path to a program.
 PYTHON3:FILEPATH=/opt/homebrew/bin/python3
@@ -671,6 +671,12 @@ openflow_header_internal_openflow.h:FILEPATH=openflow_header_internal_openflow.h
 
 //Path to a library.
 openflow_library_internal_openflow:FILEPATH=openflow_library_internal_openflow-NOTFOUND
+
+//Path to a library.
+pkgcfg_lib_PC_HARFBUZZ_harfbuzz:FILEPATH=/opt/homebrew/Cellar/harfbuzz/12.1.0/lib/libharfbuzz.dylib
+
+//Path to a library.
+pkgcfg_lib_PC_LIBXML_xml2:FILEPATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libxml2.tbd
 
 
 ########################
@@ -900,12 +906,39 @@ GIT_EXECUTABLE-ADVANCED:INTERNAL=1
 GSL_CBLAS_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: GSL_CBLAS_LIBRARY_DEBUG
 GSL_CBLAS_LIBRARY_DEBUG-ADVANCED:INTERNAL=1
+GSL_CFLAGS:INTERNAL=
+GSL_CFLAGS_I:INTERNAL=
+GSL_CFLAGS_OTHER:INTERNAL=
+GSL_FOUND:INTERNAL=
+GSL_INCLUDEDIR:INTERNAL=
 //ADVANCED property for variable: GSL_INCLUDE_DIR
 GSL_INCLUDE_DIR-ADVANCED:INTERNAL=1
+GSL_LIBDIR:INTERNAL=
 //ADVANCED property for variable: GSL_LIBRARY
 GSL_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: GSL_LIBRARY_DEBUG
 GSL_LIBRARY_DEBUG-ADVANCED:INTERNAL=1
+GSL_LIBS:INTERNAL=
+GSL_LIBS_L:INTERNAL=
+GSL_LIBS_OTHER:INTERNAL=
+GSL_LIBS_PATHS:INTERNAL=
+GSL_MODULE_NAME:INTERNAL=
+GSL_PREFIX:INTERNAL=
+GSL_STATIC_CFLAGS:INTERNAL=
+GSL_STATIC_CFLAGS_I:INTERNAL=
+GSL_STATIC_CFLAGS_OTHER:INTERNAL=
+GSL_STATIC_LIBDIR:INTERNAL=
+GSL_STATIC_LIBS:INTERNAL=
+GSL_STATIC_LIBS_L:INTERNAL=
+GSL_STATIC_LIBS_OTHER:INTERNAL=
+GSL_STATIC_LIBS_PATHS:INTERNAL=
+//ADVANCED property for variable: GSL_VERSION
+GSL_VERSION-ADVANCED:INTERNAL=1
+GSL_VERSION:INTERNAL=
+GSL_gsl_INCLUDEDIR:INTERNAL=
+GSL_gsl_LIBDIR:INTERNAL=
+GSL_gsl_PREFIX:INTERNAL=
+GSL_gsl_VERSION:INTERNAL=
 //ADVANCED property for variable: GTK3_ATK_LIBRARY
 GTK3_ATK_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: GTK3_CAIRO_INCLUDE_DIR
@@ -999,27 +1032,76 @@ NS3_OPENFLOW:INTERNAL=OFF
 //ADVANCED property for variable: NS3_OPENFLOW_REASON
 NS3_OPENFLOW_REASON-ADVANCED:INTERNAL=1
 NS3_OPENFLOW_REASON:INTERNAL=Missing headers: "openflow.h" and missing libraries: "openflow"
-PC_HARFBUZZ_CFLAGS:INTERNAL=
+PC_HARFBUZZ_CFLAGS:INTERNAL=-I/opt/homebrew/Cellar/harfbuzz/12.1.0/include/harfbuzz;-I/opt/homebrew/opt/freetype/include/freetype2;-I/opt/homebrew/opt/libpng/include/libpng16;-I/opt/homebrew/Cellar/glib/2.86.0/include/glib-2.0;-I/opt/homebrew/Cellar/glib/2.86.0/lib/glib-2.0/include;-I/opt/homebrew/opt/gettext/include;-I/opt/homebrew/Cellar/pcre2/10.46/include;-I/opt/homebrew/Cellar/graphite2/1.3.14/include
 PC_HARFBUZZ_CFLAGS_I:INTERNAL=
 PC_HARFBUZZ_CFLAGS_OTHER:INTERNAL=
-PC_HARFBUZZ_FOUND:INTERNAL=
-PC_HARFBUZZ_INCLUDEDIR:INTERNAL=
-PC_HARFBUZZ_LIBDIR:INTERNAL=
+PC_HARFBUZZ_FOUND:INTERNAL=1
+PC_HARFBUZZ_INCLUDEDIR:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/include
+PC_HARFBUZZ_INCLUDE_DIRS:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/include/harfbuzz;/opt/homebrew/opt/freetype/include/freetype2;/opt/homebrew/opt/libpng/include/libpng16;/opt/homebrew/Cellar/glib/2.86.0/include/glib-2.0;/opt/homebrew/Cellar/glib/2.86.0/lib/glib-2.0/include;/opt/homebrew/opt/gettext/include;/opt/homebrew/Cellar/pcre2/10.46/include;/opt/homebrew/Cellar/graphite2/1.3.14/include
+PC_HARFBUZZ_LDFLAGS:INTERNAL=-L/opt/homebrew/Cellar/harfbuzz/12.1.0/lib;-lharfbuzz
+PC_HARFBUZZ_LDFLAGS_OTHER:INTERNAL=
+PC_HARFBUZZ_LIBDIR:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/lib
+PC_HARFBUZZ_LIBRARIES:INTERNAL=harfbuzz
+PC_HARFBUZZ_LIBRARY_DIRS:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/lib
 PC_HARFBUZZ_LIBS:INTERNAL=
 PC_HARFBUZZ_LIBS_L:INTERNAL=
 PC_HARFBUZZ_LIBS_OTHER:INTERNAL=
 PC_HARFBUZZ_LIBS_PATHS:INTERNAL=
-PC_HARFBUZZ_MODULE_NAME:INTERNAL=
-PC_HARFBUZZ_PREFIX:INTERNAL=
-PC_HARFBUZZ_STATIC_CFLAGS:INTERNAL=
+PC_HARFBUZZ_MODULE_NAME:INTERNAL=harfbuzz
+PC_HARFBUZZ_PREFIX:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0
+PC_HARFBUZZ_STATIC_CFLAGS:INTERNAL=-I/opt/homebrew/Cellar/harfbuzz/12.1.0/include/harfbuzz;-I/opt/homebrew/opt/freetype/include/freetype2;-I/opt/homebrew/opt/libpng/include/libpng16;-I/opt/homebrew/Cellar/glib/2.86.0/include/glib-2.0;-I/opt/homebrew/Cellar/glib/2.86.0/lib/glib-2.0/include;-I/opt/homebrew/opt/gettext/include;-I/opt/homebrew/Cellar/pcre2/10.46/include;-I/opt/homebrew/Cellar/graphite2/1.3.14/include
 PC_HARFBUZZ_STATIC_CFLAGS_I:INTERNAL=
 PC_HARFBUZZ_STATIC_CFLAGS_OTHER:INTERNAL=
+PC_HARFBUZZ_STATIC_INCLUDE_DIRS:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/include/harfbuzz;/opt/homebrew/opt/freetype/include/freetype2;/opt/homebrew/opt/libpng/include/libpng16;/opt/homebrew/Cellar/glib/2.86.0/include/glib-2.0;/opt/homebrew/Cellar/glib/2.86.0/lib/glib-2.0/include;/opt/homebrew/opt/gettext/include;/opt/homebrew/Cellar/pcre2/10.46/include;/opt/homebrew/Cellar/graphite2/1.3.14/include
+PC_HARFBUZZ_STATIC_LDFLAGS:INTERNAL=-L/opt/homebrew/Cellar/harfbuzz/12.1.0/lib;-lharfbuzz;-lm;-framework;ApplicationServices;-L/opt/homebrew/opt/freetype/lib;-lfreetype;-L/usr/lib;-lbz2;-L/opt/homebrew/opt/libpng/lib;-lpng16;-lz;-L/opt/homebrew/Cellar/glib/2.86.0/lib;-lglib-2.0;-L/opt/homebrew/opt/gettext/lib;-lintl;-liconv;-lm;-framework;Foundation;-framework;CoreFoundation;-framework;AppKit;-framework;Carbon;-L/opt/homebrew/Cellar/pcre2/10.46/lib;-lpcre2-8;-D_THREAD_SAFE;-pthread;-L/opt/homebrew/Cellar/graphite2/1.3.14/lib;-lgraphite2
+PC_HARFBUZZ_STATIC_LDFLAGS_OTHER:INTERNAL=-framework;ApplicationServices;-framework;Foundation;-framework;CoreFoundation;-framework;AppKit;-framework;Carbon;-D_THREAD_SAFE;-pthread
 PC_HARFBUZZ_STATIC_LIBDIR:INTERNAL=
+PC_HARFBUZZ_STATIC_LIBRARIES:INTERNAL=harfbuzz;m;freetype;bz2;png16;z;glib-2.0;intl;iconv;m;pcre2-8;graphite2
+PC_HARFBUZZ_STATIC_LIBRARY_DIRS:INTERNAL=/opt/homebrew/Cellar/harfbuzz/12.1.0/lib;/opt/homebrew/opt/freetype/lib;/usr/lib;/opt/homebrew/opt/libpng/lib;/opt/homebrew/Cellar/glib/2.86.0/lib;/opt/homebrew/opt/gettext/lib;/opt/homebrew/Cellar/pcre2/10.46/lib;/opt/homebrew/Cellar/graphite2/1.3.14/lib
 PC_HARFBUZZ_STATIC_LIBS:INTERNAL=
 PC_HARFBUZZ_STATIC_LIBS_L:INTERNAL=
 PC_HARFBUZZ_STATIC_LIBS_OTHER:INTERNAL=
 PC_HARFBUZZ_STATIC_LIBS_PATHS:INTERNAL=
-PC_HARFBUZZ_VERSION:INTERNAL=
+PC_HARFBUZZ_VERSION:INTERNAL=12.1.0
+PC_HARFBUZZ_harfbuzz_INCLUDEDIR:INTERNAL=
+PC_HARFBUZZ_harfbuzz_LIBDIR:INTERNAL=
+PC_HARFBUZZ_harfbuzz_PREFIX:INTERNAL=
+PC_HARFBUZZ_harfbuzz_VERSION:INTERNAL=
+PC_LIBXML_CFLAGS:INTERNAL=
+PC_LIBXML_CFLAGS_I:INTERNAL=
+PC_LIBXML_CFLAGS_OTHER:INTERNAL=
+PC_LIBXML_FOUND:INTERNAL=1
+PC_LIBXML_INCLUDEDIR:INTERNAL=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include
+PC_LIBXML_INCLUDE_DIRS:INTERNAL=
+PC_LIBXML_LDFLAGS:INTERNAL=-L/usr/lib;-lxml2
+PC_LIBXML_LDFLAGS_OTHER:INTERNAL=
+PC_LIBXML_LIBDIR:INTERNAL=/usr/lib
+PC_LIBXML_LIBRARIES:INTERNAL=xml2
+PC_LIBXML_LIBRARY_DIRS:INTERNAL=/usr/lib
+PC_LIBXML_LIBS:INTERNAL=
+PC_LIBXML_LIBS_L:INTERNAL=
+PC_LIBXML_LIBS_OTHER:INTERNAL=
+PC_LIBXML_LIBS_PATHS:INTERNAL=
+PC_LIBXML_MODULE_NAME:INTERNAL=libxml-2.0
+PC_LIBXML_PREFIX:INTERNAL=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr
+PC_LIBXML_STATIC_CFLAGS:INTERNAL=
+PC_LIBXML_STATIC_CFLAGS_I:INTERNAL=
+PC_LIBXML_STATIC_CFLAGS_OTHER:INTERNAL=
+PC_LIBXML_STATIC_INCLUDE_DIRS:INTERNAL=
+PC_LIBXML_STATIC_LDFLAGS:INTERNAL=-L/usr/lib;-lxml2;-lz;-lpthread;-licucore;-lm
+PC_LIBXML_STATIC_LDFLAGS_OTHER:INTERNAL=
+PC_LIBXML_STATIC_LIBDIR:INTERNAL=
+PC_LIBXML_STATIC_LIBRARIES:INTERNAL=xml2;z;pthread;icucore;m
+PC_LIBXML_STATIC_LIBRARY_DIRS:INTERNAL=/usr/lib
+PC_LIBXML_STATIC_LIBS:INTERNAL=
+PC_LIBXML_STATIC_LIBS_L:INTERNAL=
+PC_LIBXML_STATIC_LIBS_OTHER:INTERNAL=
+PC_LIBXML_STATIC_LIBS_PATHS:INTERNAL=
+PC_LIBXML_VERSION:INTERNAL=2.9.13
+PC_LIBXML_libxml-2.0_INCLUDEDIR:INTERNAL=
+PC_LIBXML_libxml-2.0_LIBDIR:INTERNAL=
+PC_LIBXML_libxml-2.0_PREFIX:INTERNAL=
+PC_LIBXML_libxml-2.0_VERSION:INTERNAL=
 //ADVANCED property for variable: PDFLATEX
 PDFLATEX-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: PKG_CONFIG_ARGN
@@ -1054,7 +1136,11 @@ _Boost_NAMESPACE_LAST:INTERNAL=boost
 _Boost_USE_MULTITHREADED_LAST:INTERNAL=TRUE
 //CMAKE_INSTALL_PREFIX during last run
 _GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/usr/local
+__pkg_config_arguments_PC_HARFBUZZ:INTERNAL=QUIET;harfbuzz
+__pkg_config_arguments_PC_LIBXML:INTERNAL=QUIET;libxml-2.0
+__pkg_config_checked_GSL:INTERNAL=1
 __pkg_config_checked_PC_HARFBUZZ:INTERNAL=1
+__pkg_config_checked_PC_LIBXML:INTERNAL=1
 //ADVANCED property for variable: brite_header_internal_Brite.h
 brite_header_internal_Brite.h-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: brite_library_internal_brite
@@ -1379,6 +1465,11 @@ ns3-optional-visualizer-lib:INTERNAL=
 openflow_header_internal_openflow.h-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: openflow_library_internal_openflow
 openflow_library_internal_openflow-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: pkgcfg_lib_PC_HARFBUZZ_harfbuzz
+pkgcfg_lib_PC_HARFBUZZ_harfbuzz-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: pkgcfg_lib_PC_LIBXML_xml2
+pkgcfg_lib_PC_LIBXML_xml2-ADVANCED:INTERNAL=1
+prefix_result:INTERNAL=/usr/lib
 testaggregator:INTERNAL=aggregator-test
 testantenna:INTERNAL=antenna-test
 testaodv:INTERNAL=aodv-test
