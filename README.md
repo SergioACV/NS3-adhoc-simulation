@@ -33,13 +33,13 @@ and change directory to ns-3-dev for further work.
 
 Simluation until now
 
-¿Que hace el modelo ahora?
+<u>¿Que hace el modelo ahora?</u>
 
 -  Incluye interferenica en la señal (Ya sea porque tiene muchos arboles, humedad, distancia)
 -  Tiene en cuenta el evento de la lluvia que empeora la señal.
 - El dron se mueve recorriendo todos los cluster ( pues iria recogiendo información de cada cluster para enviarsela)
 
-¿ Que podría hacer más?
+<u>¿ Que podría hacer más?</u>
 
 - Que el recolector (el dron) se mueve hacia los clusters que hayan mandado una señal de alerta ( o algo asi). Generar eventos de alerta
 - Que el nodo lider (de cada cluster) sea el nodo con mas alcance en su señal, pues el nodo lider deberia ser el nodo mas estasble y con mas tecnología.
