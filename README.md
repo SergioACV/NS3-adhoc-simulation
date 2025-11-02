@@ -43,7 +43,15 @@ Simluation until now
 
 - Que el recolector (el dron) se mueve hacia los clusters que hayan mandado una señal de alerta ( o algo asi). Generar eventos de alerta
 - Que el nodo lider (de cada cluster) sea el nodo con mas alcance en su señal, pues el nodo lider deberia ser el nodo mas estasble y con mas tecnología.
+    - Al usar el comando run utilizar el siguiente parámetro para activar la opción
+```
+--useLeaderSignalPower=true
+```
 - Implementar mas recolectores (drones)
+    - Al usar el comando run utilizar el siguiente parámetro para activar la opción  
+```
+--nRecolector=3
+```
 - Matar a un nodo lider (la red no deberia dejar de funcionar)
 
 
