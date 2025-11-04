@@ -19,7 +19,7 @@ set(CMAKE_IMPORT_FILE_VERSION 1)
 set(_cmake_targets_defined "")
 set(_cmake_targets_not_defined "")
 set(_cmake_expected_targets "")
-foreach(_cmake_expected_target IN ITEMS ns3::antenna ns3::aodv ns3::applications ns3::bridge ns3::buildings ns3::config-store ns3::core ns3::csma ns3::csma-layout ns3::dsdv ns3::dsr ns3::energy ns3::flow-monitor ns3::internet ns3::internet-apps ns3::lr-wpan ns3::lte ns3::mesh ns3::mobility ns3::netanim ns3::network ns3::nix-vector-routing ns3::olsr ns3::point-to-point ns3::point-to-point-layout ns3::propagation ns3::sixlowpan ns3::spectrum ns3::stats ns3::topology-read ns3::traffic-control ns3::uan ns3::virtual-net-device ns3::wifi ns3::wimax)
+foreach(_cmake_expected_target IN ITEMS ns3::antenna ns3::aodv ns3::applications ns3::bridge ns3::buildings ns3::config-store ns3::core ns3::csma ns3::csma-layout ns3::dsdv ns3::dsr ns3::energy ns3::flow-monitor ns3::internet ns3::internet-apps ns3::lr-wpan ns3::lte ns3::mesh ns3::mobility ns3::netanim ns3::network ns3::nix-vector-routing ns3::olsr ns3::point-to-point ns3::point-to-point-layout ns3::propagation ns3::sixlowpan ns3::spectrum ns3::stats ns3::store-carry-forward ns3::topology-read ns3::traffic-control ns3::uan ns3::virtual-net-device ns3::wifi ns3::wimax)
   list(APPEND _cmake_expected_targets "${_cmake_expected_target}")
   if(TARGET "${_cmake_expected_target}")
     list(APPEND _cmake_targets_defined "${_cmake_expected_target}")
@@ -313,6 +313,15 @@ set_target_properties(ns3::stats PROPERTIES
   INTERFACE_COMPILE_DEFINITIONS "PROJECT_SOURCE_PATH=\"/Users/sergio/Documents/ns-allinone-3.43/ns-3.43\";__APPLE__;NS3_BUILD_PROFILE_DEBUG;HAVE_SQLITE3;HAVE_LIBXML2;NS3_LOG_ENABLE;NS3_ASSERT_ENABLE"
   INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libxml2"
   INTERFACE_LINK_LIBRARIES "ns3::core;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libsqlite3.tbd"
+)
+
+# Create imported target ns3::store-carry-forward
+add_library(ns3::store-carry-forward SHARED IMPORTED)
+
+set_target_properties(ns3::store-carry-forward PROPERTIES
+  INTERFACE_COMPILE_DEFINITIONS "PROJECT_SOURCE_PATH=\"/Users/sergio/Documents/ns-allinone-3.43/ns-3.43\";__APPLE__;NS3_BUILD_PROFILE_DEBUG;HAVE_SQLITE3;HAVE_LIBXML2;NS3_LOG_ENABLE;NS3_ASSERT_ENABLE"
+  INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libxml2"
+  INTERFACE_LINK_LIBRARIES "ns3::core;ns3::network;ns3::mobility;ns3::applications"
 )
 
 # Create imported target ns3::topology-read

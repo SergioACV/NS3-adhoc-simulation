@@ -29,6 +29,15 @@ MultiZonePropagationLossModelHelper::SetDefaultZone(double baseLossDb, double lo
   m_hasDefaultZone = true;
 }
 
+double MultiZonePropagationLossModelHelper::GetLoss(const Vector &tx, const Vector &rx) const {
+    if (m_model) {
+        return m_model->GetLoss(tx, rx);
+    }
+    NS_LOG_WARN("MultiZonePropagationLossModel no ha sido creado todavía");
+    return 0.0;
+}
+
+
 Ptr<PropagationLossModel>
 MultiZonePropagationLossModelHelper::Create()
 {

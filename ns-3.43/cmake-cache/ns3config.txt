@@ -36,10 +36,10 @@ lr-wpan                   lte                       mesh
 mobility                  netanim                   network                   
 nix-vector-routing        olsr                      point-to-point            
 point-to-point-layout     propagation               sixlowpan                 
-spectrum                  stats                     test                      
-topology-read             traffic-control           uan                       
-virtual-net-device        wifi                      wimax                     
-
+spectrum                  stats                     store-carry-forward       
+test                      topology-read             traffic-control           
+uan                       virtual-net-device        wifi                      
+wimax                     
 
 Modules that cannot be built:
 brite                     click                     fd-net-device             

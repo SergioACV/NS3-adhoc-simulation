@@ -65,6 +65,9 @@ public:
    */
   void SetRainEffect(bool active);
 
+  double GetLoss(const Vector &tx, const Vector &rx) const;
+
+
 private:
   ObjectFactory m_factory;
 

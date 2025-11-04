@@ -295,6 +295,16 @@ set_target_properties(ns3::stats PROPERTIES
 list(APPEND _cmake_import_check_targets ns3::stats )
 list(APPEND _cmake_import_check_files_for_ns3::stats "${_IMPORT_PREFIX}/lib/libns3.43-stats-default.dylib" )
 
+# Import target "ns3::store-carry-forward" for configuration "default"
+set_property(TARGET ns3::store-carry-forward APPEND PROPERTY IMPORTED_CONFIGURATIONS DEFAULT)
+set_target_properties(ns3::store-carry-forward PROPERTIES
+  IMPORTED_LOCATION_DEFAULT "${_IMPORT_PREFIX}/lib/libns3.43-store-carry-forward-default.dylib"
+  IMPORTED_SONAME_DEFAULT "@rpath/libns3.43-store-carry-forward-default.dylib"
+  )
+
+list(APPEND _cmake_import_check_targets ns3::store-carry-forward )
+list(APPEND _cmake_import_check_files_for_ns3::store-carry-forward "${_IMPORT_PREFIX}/lib/libns3.43-store-carry-forward-default.dylib" )
+
 # Import target "ns3::topology-read" for configuration "default"
 set_property(TARGET ns3::topology-read APPEND PROPERTY IMPORTED_CONFIGURATIONS DEFAULT)
 set_target_properties(ns3::topology-read PROPERTIES

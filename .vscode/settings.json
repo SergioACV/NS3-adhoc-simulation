@@ -1,0 +1,18 @@
+{
+    "files.associations": {
+        "__node_handle": "cpp",
+        "__tree": "cpp",
+        "cstdint": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "cwchar": "cpp",
+        "initializer_list": "cpp",
+        "iosfwd": "cpp",
+        "limits": "cpp",
+        "list": "cpp",
+        "map": "cpp",
+        "new": "cpp",
+        "stdexcept": "cpp",
+        "typeinfo": "cpp"
+    }
+}

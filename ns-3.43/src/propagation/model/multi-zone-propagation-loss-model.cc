@@ -94,6 +94,18 @@ MultiZonePropagationLossModel::SetRainEffect(bool active)
   NS_LOG_INFO("Rain effect " << (active ? "ENABLED" : "DISABLED"));
 }
 
+double MultiZonePropagationLossModel::GetLoss(const Vector &tx, const Vector &rx) const
+{
+    double dist = std::sqrt((tx.x - rx.x)*(tx.x - rx.x) + (tx.y - rx.y)*(tx.y - rx.y));
+    for (auto &zone : m_zones) {
+        if (zone.Contains(rx)) {
+            return zone.GetPathLoss(dist);
+        }
+    }
+    return m_defaultBaseLossDb + m_defaultLogCoeff * std::log10(dist + 1.0);
+}
+
+
 
 
 } // namespace ns3

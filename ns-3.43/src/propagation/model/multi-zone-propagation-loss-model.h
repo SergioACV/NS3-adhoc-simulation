@@ -32,44 +32,27 @@ public:
   static TypeId GetTypeId(void);
   MultiZonePropagationLossModel();
 
-  /**
-   * \brief Agrega una zona circular al modelo.
-   * \param centerX Coordenada X del centro.
-   * \param centerY Coordenada Y del centro.
-   * \param radius Radio del círculo (m).
-   * \param baseLossDb Pérdida base en dB.
-   * \param logCoeff Coeficiente logarítmico.
-   */
   void AddCircularZone(double centerX, double centerY, double radius,
                        double baseLossDb, double logCoeff);
 
-  /**
-   * \brief Define los parámetros por defecto (usados fuera de los círculos).
-   * \param baseLossDb Pérdida base en dB.
-   * \param logCoeff Coeficiente logarítmico.
-   */
   void SetDefaultZone(double baseLossDb, double logCoeff);
 
-  /**
-   * \brief Activa o desactiva el efecto de lluvia sobre las zonas de propagación.
-   *
-   * Este método ajusta dinámicamente las pérdidas de propagación para simular
-   * condiciones climáticas cambiantes (por ejemplo, lluvia o humedad).
-   *
-   * Cuando el efecto está activo, los valores de pérdida base (`baseLossDb`)
-   * y coeficiente logarítmico (`logCoeff`) de cada zona aumentan,
-   * simulando la atenuación adicional causada por gotas de agua en el aire.
-   *
-   * \param active Si es true, activa el efecto de lluvia; si es false, lo desactiva
-   * y restaura los valores originales.
-   */
   void SetRainEffect(bool active);
 
+  /**
+   * \brief Calcula la pérdida entre dos posiciones sin necesidad de nodos.
+   *
+   * Este método permite consultar la pérdida de propagación (dB) entre
+   * dos vectores (posiciones) y se puede usar en lógicas como
+   * PeriodicProximityCheck para decidir si un paquete podría llegar.
+   *
+   * \param tx Posición del transmisor.
+   * \param rx Posición del receptor.
+   * \return Pérdida de propagación en dB.
+   */
+  double GetLoss(const Vector &tx, const Vector &rx) const;
 
 protected:
-  /**
-   * \brief Cálculo principal de potencia recibida (ns-3 internamente lo llama).
-   */
   virtual double DoCalcRxPower(double txPowerDbm,
                                Ptr<MobilityModel> a,
                                Ptr<MobilityModel> b) const override;
@@ -84,6 +67,16 @@ private:
     double radius;
     double baseLossDb;
     double logCoeff;
+
+    bool Contains(const Vector &v) const {
+        double dx = v.x - centerX;
+        double dy = v.y - centerY;
+        return (dx*dx + dy*dy) <= radius*radius;
+    }
+
+    double GetPathLoss(double distance) const {
+        return baseLossDb + logCoeff * std::log10(distance + 1.0);
+    }
   };
 
   std::vector<Zone> m_zones;
