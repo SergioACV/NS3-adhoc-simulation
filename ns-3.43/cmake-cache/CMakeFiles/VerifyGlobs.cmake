@@ -6,7 +6,6 @@ file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/sergio/Documents/ns-allinone-3.
 set(OLD_GLOB
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/CMakeLists.txt"
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/adhoc.cc"
-  "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/example.cc"
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/nested-subdir"
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/scratch-simulator.cc"
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/subdir"
@@ -20,7 +19,6 @@ endif()
 file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/[^.]*.cc")
 set(OLD_GLOB
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/adhoc.cc"
-  "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/example.cc"
   "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/scratch-simulator.cc"
   )
 if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")

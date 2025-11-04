@@ -5,6 +5,7 @@
 #include <cmath>
 
 
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE("MultiZonePropagationLossModel");
@@ -96,14 +97,38 @@ MultiZonePropagationLossModel::SetRainEffect(bool active)
 
 double MultiZonePropagationLossModel::GetLoss(const Vector &tx, const Vector &rx) const
 {
+    // Calcular distancia euclidiana 2D
     double dist = std::sqrt((tx.x - rx.x)*(tx.x - rx.x) + (tx.y - rx.y)*(tx.y - rx.y));
-    for (auto &zone : m_zones) {
-        if (zone.Contains(rx)) {
-            return zone.GetPathLoss(dist);
+    if (dist < 1.0)
+        dist = 1.0; // evita log10(0)
+
+    // Determinar zona según el transmisor (CH)
+    const Zone* activeZone = nullptr;
+    for (const auto &zone : m_zones)
+    {
+        if (zone.Contains(tx))  // << cambio clave
+        {
+            activeZone = &zone;
+            break;
         }
     }
-    return m_defaultBaseLossDb + m_defaultLogCoeff * std::log10(dist + 1.0);
+
+    // Parámetros de la zona
+    double baseLoss = activeZone ? activeZone->baseLossDb : m_defaultBaseLossDb;
+    double n = activeZone ? activeZone->logCoeff : m_defaultLogCoeff / 10.0;
+
+    // Reducir pérdida a distancias muy cortas (opcional)
+    if (dist < 10.0)
+        baseLoss -= (10.0 - dist) * 2.0;
+
+    // Pérdida logarítmica
+    double pathLoss = baseLoss + 10.0 * n * std::log10(dist);
+
+    return pathLoss;
 }
+
+
+
 
 
 

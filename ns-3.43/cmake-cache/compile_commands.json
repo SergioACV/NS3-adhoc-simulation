@@ -9307,12 +9307,6 @@
 },
 {
   "directory": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache",
-  "command": "/usr/bin/c++ -DHAVE_LIBXML2 -DHAVE_SQLITE3 -DNS3_ASSERT_ENABLE -DNS3_BUILD_PROFILE_DEBUG -DNS3_LOG_ENABLE -DPROJECT_SOURCE_PATH=\\\"/Users/sergio/Documents/ns-allinone-3.43/ns-3.43\\\" -D__APPLE__ -I/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/build/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libxml2 -O2 -g -DNDEBUG -std=c++20 -arch arm64 -fPIE   -fcolor-diagnostics -Xclang -fno-pch-timestamp -Wall -Wpedantic -Winvalid-pch -Xclang -include-pch -Xclang /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/CMakeFiles/stdlib_pch_exec.dir/cmake_pch.hxx.pch -Xclang -include -Xclang /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/CMakeFiles/stdlib_pch_exec.dir/cmake_pch.hxx -o scratch/CMakeFiles/scratch_example.dir/example.cc.o -c /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/example.cc",
-  "file": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/example.cc",
-  "output": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_example.dir/example.cc.o"
-},
-{
-  "directory": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache",
   "command": "/usr/bin/c++ -DHAVE_LIBXML2 -DHAVE_SQLITE3 -DNS3_ASSERT_ENABLE -DNS3_BUILD_PROFILE_DEBUG -DNS3_LOG_ENABLE -DPROJECT_SOURCE_PATH=\\\"/Users/sergio/Documents/ns-allinone-3.43/ns-3.43\\\" -D__APPLE__ -I/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/build/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/libxml2 -O2 -g -DNDEBUG -std=c++20 -arch arm64 -fPIE   -fcolor-diagnostics -Xclang -fno-pch-timestamp -Wall -Wpedantic -Winvalid-pch -Xclang -include-pch -Xclang /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/CMakeFiles/stdlib_pch_exec.dir/cmake_pch.hxx.pch -Xclang -include -Xclang /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/CMakeFiles/stdlib_pch_exec.dir/cmake_pch.hxx -o scratch/CMakeFiles/scratch_scratch-simulator.dir/scratch-simulator.cc.o -c /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/scratch-simulator.cc",
   "file": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/scratch/scratch-simulator.cc",
   "output": "/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_scratch-simulator.dir/scratch-simulator.cc.o"

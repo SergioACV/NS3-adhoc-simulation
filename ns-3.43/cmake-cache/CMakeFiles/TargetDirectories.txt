@@ -931,7 +931,6 @@
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/examples/wireless/CMakeFiles/install/local.dir
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/examples/wireless/CMakeFiles/install/strip.dir
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_adhoc.dir
-/Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_example.dir
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_scratch-simulator.dir
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/scratch_subdir_scratch-subdir.dir
 /Users/sergio/Documents/ns-allinone-3.43/ns-3.43/cmake-cache/scratch/CMakeFiles/edit_cache.dir

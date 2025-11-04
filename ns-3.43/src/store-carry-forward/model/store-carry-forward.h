@@ -18,6 +18,7 @@ struct BufferedPacket {
     Ptr<Node> sender;
     Ipv4Address dest;
     uint16_t port;
+    Ptr<Packet> packet; 
     uint32_t size;
     double timestamp;
 };
@@ -25,9 +26,14 @@ struct BufferedPacket {
 // -------------------
 // Funciones públicas
 // -------------------
-void BufferPacket(Ptr<Node> sender, Ipv4Address dest, uint16_t port, uint32_t size);
-void SendBufferedPackets(Ptr<Node> sender, Ipv4Address dest, uint16_t port);
-void SendSensorData(Ptr<Node> from, Ipv4Address toAddr, uint16_t port, Ptr<Packet> pkt);
+void BufferPacket(Ptr<Node> sender, Ipv4Address dest, uint16_t port, Ptr<const Packet> pkt);
+bool HasBufferedPackets(Ptr<Node> node);
+// Devuelve el siguiente paquete de la cola sin eliminarlo
+BufferedPacket PeekBufferedPacket(Ptr<Node> node);
+
+// Elimina el paquete que ya fue enviado
+void PopBufferedPacket(Ptr<Node> node);
+
 
 } // namespace ns3
 
