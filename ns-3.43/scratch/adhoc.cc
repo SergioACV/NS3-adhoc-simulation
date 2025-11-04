@@ -84,13 +84,13 @@ void InstallClusterHeadReceivers(NodeContainer &clusterHeads, uint16_t listenPor
 void SetupIntraClusterClients(NodeContainer &sensors,NodeContainer &clusterHeads,Ipv4InterfaceContainer &interfaces);
 // ScheduleRecolectorMovement ahora recibe simEnd para repetir hasta el final
 void ScheduleRecolectorMovement(Ptr<ConstantVelocityMobilityModel> mv,
-                                Vector A, Vector B, Vector C, double speed, double simEnd);
+                                Vector A, Vector B, Vector C, double speed, double simEnd, Vector centroid);
 
 void RunSimulation(double simTime);
 
 void PeriodicProximityCheck(NodeContainer &clusterHeads,NodeContainer &recolectors,double checkInterval);
-static void ReturnToSuperCallback(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simTime);
-static void SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simTime, double leadTime = 5.0);
+static void ReturnToSuperCallback(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simTime, double patrolSpeed);
+static void SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simTime, double leadTime = 5.0, double patrolSpeed = 5.0);
 
 double Dist2D(const Vector &a, const Vector &b);
 void SchedulePeriodicProximityCheck(NodeContainer &clusterHeads,NodeContainer &recolector,double checkInterval = 1.0);
@@ -711,7 +711,7 @@ void RecolectorAppRecvCallback(uint32_t recolectorIndex, Ptr<Node> recolectorNod
 }
 
 // Callback para el supercluster
-void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<const Packet> packet)
+void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const Packet> packet)
 {
     uint32_t pktSize = packet->GetSize();
 
@@ -719,17 +719,35 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<const Packet> packet)
                     << "s] SuperCluster[" << scIndex << "] recibió paquete de tamaño "
                     << pktSize);
 
-    // Copiar contenido del paquete a un buffer
-    //uint8_t buffer[1024];
-    //packet->CopyData(buffer, pktSize);
-    //std::string payload(reinterpret_cast<char*>(buffer), pktSize);
+    std::vector<uint8_t> buffer(pktSize);
+    packet->CopyData(buffer.data(), pktSize);
+    std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
 
-    // Opcional: procesar payload
-    //NS_LOG_INFO("SuperCluster[" << scIndex << "] payload: " << payload);
+    // Separar IP destino y mensaje
+    size_t sep = payload.find('|');
+    if (sep == std::string::npos)
+    {
+        NS_LOG_WARN("SuperCluster[" << scIndex << "] recibió paquete mal formado: " << payload);
+        return;
+    }
 
-    // Bufferizar el paquete si quieres almacenarlo
-    //BufferPacket(superCluster.Get(scIndex), superAddr, 6000, packet);
-    //NS_LOG_INFO("SuperCluster[" << scIndex << "] bufferizó paquete para " << superAddr);
+    std::string ipStr = payload.substr(0, sep);
+    std::string msg = payload.substr(sep + 1);
+
+    // Aquí asumimos que todos los paquetes que recibe un recolector van al supercluster
+    Ipv4Address destIp = g_superAddr; // variable global que definimos antes
+
+    //discard if the message is intended for the supercluster itself
+    Ptr<Ipv4> scIpv4 = scNode->GetObject<Ipv4>();
+    if (scIpv4 && destIp == scIpv4->GetAddress(1,0).GetLocal()) 
+    {
+        NS_LOG_INFO("SuperCluster[" << scIndex << "] recibió mensaje destinado a sí mismo: " << msg);
+        return;
+    }
+
+    // Bufferizar el paquete completo hacia el supercluster
+    Ptr<Packet> safeCopy = packet->Copy();
+    BufferPacket(scNode, destIp, 6000, safeCopy);
 }
 
 void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeContainer &superCluster, NodeContainer &clusterHeads, double simTime)
@@ -769,7 +787,7 @@ void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeC
         Ptr<UdpServer> srv = DynamicCast<UdpServer>(apps.Get(0));
 
         // Conectar la traza Rx con el callback, pasando el índice 0 (único nodo del supercluster)
-        srv->TraceConnectWithoutContext("Rx", MakeBoundCallback(&SuperClusterAppRecvCallback, 0));
+        srv->TraceConnectWithoutContext("Rx", MakeBoundCallback(&SuperClusterAppRecvCallback, 0, superCluster.Get(0)));
 
         NS_LOG_INFO("Servidor SuperCluster instalado en nodo " 
                     << superCluster.Get(0)->GetId() 
@@ -822,109 +840,88 @@ void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeC
 }
 
 void ScheduleRecolectorMovement(Ptr<ConstantVelocityMobilityModel> mv,
-                                Vector A, Vector B, Vector C, double speed, double simEnd)
+                                Vector A, Vector B, Vector C,
+                                double speed,
+                                double startTime,
+                                Vector centroid)
 {
     auto computeVelocity = [speed](const Vector &from, const Vector &to) {
         Vector dir = to - from;
-        double len = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-        if (len == 0)
-            return Vector(0, 0, 0);
+        double len = std::sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
+        if (len == 0) return Vector(0,0,0);
         return Vector(dir.x / len * speed, dir.y / len * speed, dir.z / len * speed);
     };
 
-    // posición inicial del dron
     Vector start = mv->GetPosition();
-    std::vector<Vector> route;
+    std::vector<Vector> route = {A, B, C}; // O rotación según inicio si quieres
 
-    // elegimos la secuencia rotada según punto de inicio (tolerancia 1.0 m)
-    if (std::abs(start.x - A.x) < 1.0 && std::abs(start.y - A.y) < 1.0)
-        route = {B, C, A};
-    else if (std::abs(start.x - B.x) < 1.0 && std::abs(start.y - B.y) < 1.0)
-        route = {C, A, B};
-    else
-        route = {A, B, C};
-
-    // calcular y agendar secuencia inicial (desde 'start' hacia route[0], route[1], ...)
-    double t = 0.0;
+    double t = startTime;
     Vector from = start;
-    std::vector<double> legTimes;
-    for (size_t i = 0; i < route.size(); ++i) {
+
+    for (size_t i=0; i<route.size(); ++i) {
         Vector to = route[i];
-        double dist = std::sqrt((to.x - from.x)*(to.x - from.x) + (to.y - from.y)*(to.y - from.y));
-        double travelTime = (speed > 0.0) ? (dist / speed) : std::numeric_limits<double>::infinity();
-        legTimes.push_back(travelTime);
-        Vector v = computeVelocity(from, to);
-        Simulator::Schedule(Seconds(t), &ConstantVelocityMobilityModel::SetVelocity, mv, v);
+        double dist = std::sqrt((to.x - from.x)*(to.x - from.x) + (to.y - from.y)*(to.y - from.y) + (to.z - from.z)*(to.z - from.z));
+        double travelTime = dist / speed;
+        Vector vel = computeVelocity(from, to);
+
+        Simulator::Schedule(Seconds(t), &ConstantVelocityMobilityModel::SetVelocity, mv, vel);
         Simulator::Schedule(Seconds(t + travelTime), &ConstantVelocityMobilityModel::SetPosition, mv, to);
+
         t += travelTime;
         from = to;
     }
 
-    double cycleTime = t;
-    if (cycleTime <= 0.0) cycleTime = 1.0; // seguridad
+    // Finalmente, regresar al centroide suavemente
+    Vector pos = route.back();
+    double distToCentroid = std::sqrt((centroid.x - pos.x)*(centroid.x - pos.x) + (centroid.y - pos.y)*(centroid.y - pos.y) + (centroid.z - pos.z)*(centroid.z - pos.z));
+    double travelTime = distToCentroid / speed;
+    Vector velToCentroid = computeVelocity(pos, centroid);
 
-    // Repetir el ciclo hasta cubrir simEnd (agendando a partir de 't')
-    while (t < simEnd) {
-        // cada ciclo recorre route in order; la 'from' para el primer leg del ciclo es route.back()
-        for (size_t i = 0; i < route.size() && t < simEnd; ++i) {
-            Vector prev = (i == 0) ? route.back() : route[i - 1];
-            Vector to = route[i];
-            double dist = std::sqrt((to.x - prev.x)*(to.x - prev.x) + (to.y - prev.y)*(to.y - prev.y));
-            double travelTime = (speed > 0.0) ? (dist / speed) : std::numeric_limits<double>::infinity();
-            Vector v = computeVelocity(prev, to);
-            Simulator::Schedule(Seconds(t), &ConstantVelocityMobilityModel::SetVelocity, mv, v);
-            Simulator::Schedule(Seconds(t + travelTime), &ConstantVelocityMobilityModel::SetPosition, mv, to);
-            t += travelTime;
-        }
-    }
+    Simulator::Schedule(Seconds(t), &ConstantVelocityMobilityModel::SetVelocity, mv, velToCentroid);
+    Simulator::Schedule(Seconds(t + travelTime), &ConstantVelocityMobilityModel::SetPosition, mv, centroid);
+
+    // Cuando llegue, reinicia patrulla
+    Simulator::Schedule(Seconds(t + travelTime), [=]() {
+        ScheduleRecolectorMovement(mv, A, B, C, speed, Simulator::Now().GetSeconds(), centroid);
+    });
 }
+
 
 // Calcula y aplica velocidad para que mv llegue a centroid justo al tiempo simEnd.
 // Si startLead > 0, programa el cálculo en simEnd - startLead; si startLead == 0 calcula ahora.
-static void
-ReturnToSuperCallback(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simEnd)
+static void ReturnToSuperCallback(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simEnd, double patrolSpeed)
 {
-
-    // Esta función es llamada por el evento 'SetupReturnToSuper'.
-    // Cancela cualquier evento de patrulla pendiente.
-    EventId patrolEvent = g_droneNextPatrolEvent[mv];
-    
-    if (patrolEvent.IsPending())
-    {
-        Simulator::Cancel(patrolEvent);
-        NS_LOG_INFO(Simulator::Now().GetSeconds() << "s: Dron " << mv->GetObject<Node>()->GetId() 
-                    << " cancelando patrulla para volver a la base.");
-    }
-
-    // Ahora, procede a calcular la velocidad de retorno.
     Vector pos = mv->GetPosition();
-    Vector dir = Vector(centroid.x - pos.x, centroid.y - pos.y, centroid.z - pos.z);
+    Vector dir = centroid - pos;
     double dist = std::sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
-    double now = Simulator::Now().GetSeconds();
-    double remaining = simEnd - now;
-    if (remaining <= 0.0 || dist <= 1e-9)
-    {
-        mv->SetPosition(centroid);
-        mv->SetVelocity(Vector(0,0,0));
+
+    if (dist <= 1e-9) {
+        // Llegó al supercluster: reiniciar ruta
+        ScheduleRecolectorMovement(mv, Vector(0,0,0), Vector(100,0,0), Vector(50,86.6,0), patrolSpeed, simEnd,centroid);
         return;
     }
-    double speed = dist / remaining;
+
+    double now = Simulator::Now().GetSeconds();
+    double remaining = simEnd - now;
+    double speed = (remaining > 0.0) ? dist / remaining : 0.0;
     Vector vel = Vector(dir.x / dist * speed, dir.y / dist * speed, dir.z / dist * speed);
+
     mv->SetVelocity(vel);
+    Simulator::Schedule(Seconds(dist / speed), &ReturnToSuperCallback, mv, centroid, simEnd, patrolSpeed);
 }
 
-static void
-SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simEnd, double leadTime)
+
+static void SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simEnd, double leadTime, double patrolSpeed)
 {
     double start = simEnd - leadTime;
     if (start < 0.0) start = 0.0;
-    // Programa la nueva versión de ReturnToSuperCallback
-    Simulator::Schedule(Seconds(start), &ReturnToSuperCallback, mv, centroid, simEnd);
-    
-    // Estos eventos aseguran que termine exactamente en el centroide
+
+    Simulator::Schedule(Seconds(start), &ReturnToSuperCallback, mv, centroid, simEnd, patrolSpeed);
+
     Simulator::Schedule(Seconds(simEnd), &ConstantVelocityMobilityModel::SetPosition, mv, centroid);
     Simulator::Schedule(Seconds(simEnd), &ConstantVelocityMobilityModel::SetVelocity, mv, Vector(0,0,0));
 }
+
 
 void PeriodicProximityCheck(NodeContainer &clusterHeads,
                             NodeContainer &recolectors,
@@ -1017,10 +1014,6 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
                         checkInterval);
 }
 
-
-
-
-
 void SchedulePeriodicProximityCheck(NodeContainer &clusterHeads,
                                     NodeContainer &recolectors,
                                     double checkInterval)
@@ -1029,7 +1022,6 @@ void SchedulePeriodicProximityCheck(NodeContainer &clusterHeads,
         PeriodicProximityCheck(clusterHeads, recolectors, checkInterval);
     });
 }
-
 
 void SuperClusterProximityCheck(NodeContainer &superCluster,
                                 NodeContainer &recolectors,
@@ -1156,7 +1148,7 @@ int main(int argc, char *argv[])
     LogComponentEnable("ManetRecolector", LOG_LEVEL_INFO);
     LogComponentEnable("StoreCarryForward", LOG_LEVEL_INFO);
 
-    double simTime = 70.0;
+    double simTime = 120.0;
     uint32_t nSensors = 9, nClusterHeads = 3;
     uint32_t nRecolector = 1; // [NUEVO] número de drones por CLI
     bool useLeaderSignalPower = false; // [NUEVO]
@@ -1260,14 +1252,12 @@ int main(int argc, char *argv[])
     // -----------------------------------------------------------------
     // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹
     // -----------------------------------------------------------------
+    // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹
     for (uint32_t i = 0; i < recolectorMVs.size(); ++i) {
         Ptr<ConstantVelocityMobilityModel> mv = recolectorMVs[i];
-        
-        // Inicia el bucle de patrulla
-        StartPatrolling(mv, patrolRoute, patrolSpeed);
-        
-        // Programa el retorno al centroide al final (usando la función corregida)
-        SetupReturnToSuper(mv, centroid, simTime, 5.0);
+
+        // Ahora usamos la nueva función que maneja todo el ciclo
+        ScheduleRecolectorMovement(mv, A, B, C, patrolSpeed, simTime, centroid);
     }
 
     // Programar chequeos periódicos de proximidad (cluster heads -> recolectors)
@@ -1296,19 +1286,6 @@ int main(int argc, char *argv[])
     anim.UpdateNodeColor(superCluster.Get(0), 0, 0, 255); // Super = Azul
     // -----------------------------------------------------------------
 
-
-    // -----------------------------------------------------------------
-    // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹
-    // -----------------------------------------------------------------
-    for (uint32_t i = 0; i < recolectorMVs.size(); ++i) {
-        Ptr<ConstantVelocityMobilityModel> mv = recolectorMVs[i];
-        
-        // Inicia el bucle de patrulla
-        StartPatrolling(mv, patrolRoute, patrolSpeed);
-        
-        // Programa el retorno al centroide al final (usando la función corregida)
-        SetupReturnToSuper(mv, centroid, simTime, 5.0);
-    }
 
     // -----------------------------------------------------------------
     // 🔹 LÓGICA DE INICIO DE ALARMA 🔹
