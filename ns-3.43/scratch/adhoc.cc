@@ -534,7 +534,7 @@ void SendStatusEvent(Ptr<Node> from, Ipv4Address chAddr, Ipv4Address finalDest, 
     socket->Connect(InetSocketAddress(chAddr, port));
     socket->Send(packet);
 
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Nodo "
+    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Sensor "
                     << from->GetId()
                     << " envía STATUS: \"" << msg << "\" a "
                     << finalDest);
@@ -553,8 +553,8 @@ void SetupIntraClusterClients(NodeContainer &sensors,
         Ipv4Address headAddr = interfaces.GetAddress(9 + headIndex); // IP del CH
 
         double startTime = 2.0 + i * 0.2; // escalonamiento
-        double interval  = 2.0;
-        double stopTime  = 58.0;
+        double interval  = 30.0;
+        double stopTime  = 118.0;
 
         // Programar envíos periódicos de Status/Event al Cluster Head
         for (double t = startTime; t <= stopTime; t += interval)
@@ -777,7 +777,7 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
     }
 
     std::string ipStr = payload.substr(0, sep);
-    std::string msg = payload.substr(sep + 1)+"|RESEND"; 
+    std::string msg = payload.substr(sep + 1); 
 
     //setear destip
     Ipv4Address destIp(ipStr.c_str());
@@ -791,6 +791,7 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
     }
 
     // 🔹 Marcar el payload como RESEND antes de bufferizar
+    msg = msg + "|RESEND";
     std::string resendPayload = ipStr + "|" + msg + "|RESEND";
     Ptr<Packet> newPkt = Create<Packet>(reinterpret_cast<const uint8_t*>(resendPayload.c_str()), resendPayload.size());
 
@@ -1390,7 +1391,7 @@ int main(int argc, char *argv[])
     InstallUdpServers(sensors, recolectors, superCluster, clusterHeads, simTime);
 
     // Configurar clientes intra-cluster (sensores -> cluster heads)
-    //SetupIntraClusterClients(sensors, clusterHeads, interfaces);
+    SetupIntraClusterClients(sensors, clusterHeads, interfaces);
 
     Ptr<Node> src = sensors.Get(2);
     Ipv4Address destIp = interfaces.GetAddress(7); // dirección IP del nodo destino
