@@ -490,76 +490,6 @@ Ipv4InterfaceContainer AssignIpAddresses(Ipv4AddressHelper &address,
     return address.Assign(allDevices);
 }
 
-void ClusterHeadAppRecvCallback(uint32_t headIndex, Ptr<Node> chNode, Ptr<const Packet> packet)
-{
-    uint32_t pktSize = packet->GetSize();
-    std::vector<uint8_t> buffer(pktSize);
-    packet->CopyData(buffer.data(), pktSize);
-    std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
-
-
-    // Separar IP destino y mensaje
-    size_t sep = payload.find('|');
-    if (sep == std::string::npos)
-    {
-        NS_LOG_WARN("CH[" << headIndex << "] recibió paquete mal formado: " << payload);
-        return;
-    }
-
-    std::string ipStr = payload.substr(0, sep);
-    std::string msg = payload.substr(sep + 1);
-    Ipv4Address destIp(ipStr.c_str());
-
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
-                    << "s] CH[" << headIndex << "] recibió paquete para "
-                    << destIp << " | Mensaje: " << msg);
-
-    
-
-    // Verificar si el destino está en el mismo cluster
-    bool inCluster = false;
-    NodeContainer clusterNodes = g_clusterNodesMap[chNode->GetId()];
-    for (uint32_t i = 0; i < clusterNodes.GetN(); ++i)
-    {
-        Ptr<Node> n = clusterNodes.Get(i);
-        Ptr<Ipv4> ipv4 = n->GetObject<Ipv4>();
-        if (!ipv4) continue;
-
-        for (uint32_t j = 0; j < ipv4->GetNInterfaces(); ++j)
-        {
-            Ipv4Address addr = ipv4->GetAddress(j, 0).GetLocal();
-            if (addr == destIp)
-            {
-                inCluster = true;
-                break;
-            }
-        }
-        if (inCluster) break;
-    }
-
-    // Si destino es el mismo CH, redirigir al supercluster
-    Ptr<Ipv4> chIpv4 = chNode->GetObject<Ipv4>();
-    if (chIpv4 && destIp == chIpv4->GetAddress(1,0).GetLocal()) destIp = g_superAddr;
-
-    if (inCluster)
-    {
-        // Enviar paquete directo
-        Ptr<Socket> socket = Socket::CreateSocket(chNode, UdpSocketFactory::GetTypeId());
-        socket->Connect(InetSocketAddress(destIp, 4000));
-        Ptr<Packet> newPacket = Create<Packet>((uint8_t*)msg.c_str(), msg.size());
-        socket->Send(newPacket);
-        NS_LOG_INFO("CH[" << headIndex << "] envió mensaje directo a " << destIp);
-    }
-    else
-    {
-        // Bufferizar el paquete original completo
-        Ptr<Packet> safeCopy = packet->Copy();
-
-        BufferPacket(chNode, destIp, 5000, safeCopy);
-
-        NS_LOG_INFO("CH[" << headIndex << "] bufferizó mensaje para " << destIp);
-    }
-}
 
 void SendSensorData(Ptr<Node> from, Ipv4Address toAddr, uint16_t port,
                     Ipv4Address finalDest, const std::string &msg)
@@ -585,31 +515,6 @@ void SendSensorData(Ptr<Node> from, Ipv4Address toAddr, uint16_t port,
 
     // Cerrar el socket después de enviar
     socket->Close();
-}
-
-
-
-
-void SendUploadData(Ptr<Node> from, Ipv4Address toAddr)
-{
-    uint16_t port = 6000;
-    UdpClientHelper client(toAddr, port);
-    client.SetAttribute("MaxPackets", UintegerValue(1));
-    client.SetAttribute("PacketSize", UintegerValue(1024));
-    ApplicationContainer app = client.Install(from);
-    app.Start(Seconds(Simulator::Now().GetSeconds()));
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Recolector sube DATA al supercluster " << toAddr);
-}
-
-void SendForwardMessage(Ptr<Node> from, Ipv4Address toAddr)
-{
-    uint16_t port = 7000;
-    UdpClientHelper client(toAddr, port);
-    client.SetAttribute("MaxPackets", UintegerValue(1));
-    client.SetAttribute("PacketSize", UintegerValue(512));
-    ApplicationContainer app = client.Install(from);
-    app.Start(Seconds(Simulator::Now().GetSeconds()));
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] SuperCluster reenvía mensaje a cluster en " << toAddr);
 }
 
 void SendStatusEvent(Ptr<Node> from, Ipv4Address chAddr, Ipv4Address finalDest, std::string msg)
@@ -664,6 +569,110 @@ void SetupIntraClusterClients(NodeContainer &sensors,
     }
 }
 
+
+void ClusterHeadAppRecvCallback(uint32_t headIndex, Ptr<Node> chNode, Ptr<const Packet> packet)
+{
+    uint32_t pktSize = packet->GetSize();
+    std::vector<uint8_t> buffer(pktSize);
+    packet->CopyData(buffer.data(), pktSize);
+    std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
+
+    
+    // Separar IP destino y resto del mensaje
+    size_t sep1 = payload.find('|');
+    if (sep1 == std::string::npos)
+    {
+        NS_LOG_WARN("CH[" << headIndex << "] paquete mal formado: " << payload);
+        return;
+    }
+
+    std::string ipStr = payload.substr(0, sep1);
+    std::string rest = payload.substr(sep1 + 1);
+
+    bool isResend = false;
+    std::string msg;
+
+    // Buscar si tiene el flag RESEND al final
+    size_t sep2 = rest.rfind('|');
+    if (sep2 != std::string::npos)
+    {
+        std::string flag = rest.substr(sep2 + 1);
+        if (flag == "RESEND")
+        {
+            isResend = true;
+            msg = rest.substr(0, sep2);
+        }
+        else
+        {
+            msg = rest; // paquete original sin flag
+        }
+    }
+    else
+    {
+        msg = rest; // paquete original sin flag
+    }
+
+    Ipv4Address destIp(ipStr.c_str());
+
+    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] CH[" << headIndex << "] recibió paquete con destino: " << destIp 
+                    << (isResend ? " [RESEND]" : "")
+                    << " | Mensaje: " << msg);
+
+    // Verificar si el destino está en el mismo cluster
+    bool inCluster = false;
+    NodeContainer clusterNodes = g_clusterNodesMap[chNode->GetId()];
+    for (uint32_t i = 0; i < clusterNodes.GetN(); ++i)
+    {
+        Ptr<Node> n = clusterNodes.Get(i);
+        Ptr<Ipv4> ipv4 = n->GetObject<Ipv4>();
+        if (!ipv4) continue;
+
+        for (uint32_t j = 0; j < ipv4->GetNInterfaces(); ++j)
+        {
+            Ipv4Address addr = ipv4->GetAddress(j, 0).GetLocal();
+            if (addr == destIp)
+            {
+                inCluster = true;
+                break;
+            }
+        }
+        if (inCluster) break;
+    }
+
+    // Si destino es el mismo CH, redirigir al supercluster
+    Ptr<Ipv4> chIpv4 = chNode->GetObject<Ipv4>();
+    if (chIpv4 && destIp == chIpv4->GetAddress(1,0).GetLocal()) destIp = g_superAddr;
+
+    Ptr<Packet> safeCopy = packet->Copy();
+
+    if (inCluster)
+    {
+        // Enviar paquete directo (tanto original como RESEND)
+        Ptr<Socket> socket = Socket::CreateSocket(chNode, UdpSocketFactory::GetTypeId());
+        socket->Connect(InetSocketAddress(destIp, 4000));
+        Ptr<Packet> newPacket = Create<Packet>((uint8_t*)msg.c_str(), msg.size());
+        socket->Send(newPacket);
+        NS_LOG_INFO("CH[" << headIndex << "] envió mensaje directo a " << destIp
+                        << (isResend ? " [RESEND]" : " [ORIGINAL]"));
+    }
+    else
+    {
+        // Si no está en el cluster, bufferizar según si es RESEND o paquete original
+        if (isResend)
+        {
+            BufferPacketSent(chNode, destIp, msg, safeCopy);
+            NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] CH[" << headIndex << "] bufferizó paquete REENVÍO para " << destIp);
+        }
+        else
+        {
+            BufferPacket(chNode, destIp, msg, safeCopy);
+            NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] CH[" << headIndex << "] bufferizó paquete para " << destIp);
+        }
+    }
+
+}
+
+
 void SensorAppRecvCallback(uint32_t nodeIndex, Ptr<const Packet> packet)
 {
     uint32_t pktSize = packet->GetSize();
@@ -678,53 +687,89 @@ void SensorAppRecvCallback(uint32_t nodeIndex, Ptr<const Packet> packet)
 
 void RecolectorAppRecvCallback(uint32_t recolectorIndex, Ptr<Node> recolectorNode, Ptr<const Packet> packet)
 {
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
-                    << "s] Recolector[" << recolectorIndex << "] recibió paquete de tamaño "
-                    << packet->GetSize());
-
-    // Copiar contenido del paquete a un buffer
     uint32_t pktSize = packet->GetSize();
-    std::vector<uint8_t> buffer(pktSize);
+    std::vector<uint8_t> buffer(pktSize);   
     packet->CopyData(buffer.data(), pktSize);
     std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
 
+    
+
     // Separar IP destino y mensaje
-    size_t sep = payload.find('|');
-    if (sep == std::string::npos)
+    size_t sep1 = payload.find('|');
+    if (sep1 == std::string::npos)
     {
         NS_LOG_WARN("Recolector[" << recolectorIndex << "] recibió paquete mal formado: " << payload);
         return;
     }
 
-    std::string ipStr = payload.substr(0, sep);
-    std::string msg = payload.substr(sep + 1);
+    std::string ipStr = payload.substr(0, sep1);
+    std::string rest = payload.substr(sep1 + 1);
 
-    // Aquí asumimos que todos los paquetes que recibe un recolector van al supercluster
-    Ipv4Address destIp = g_superAddr; // variable global que definimos antes
+    bool isResend = false;
+    std::string msg;
 
-    // Bufferizar el paquete completo hacia el supercluster
+    size_t sep2 = rest.rfind('|'); // buscar último '|'
+    if (sep2 != std::string::npos)
+    {
+        std::string flag = rest.substr(sep2 + 1);
+        if (flag == "RESEND")
+        {
+            isResend = true;
+            msg = rest.substr(0, sep2);
+        }
+        else
+        {
+            msg = rest; // paquete original sin flag
+        }
+    }
+    else
+    {
+        msg = rest; // paquete original sin flag
+    }
+
+    //add log (improve log with ip and message separated)
+    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
+                    << "s] Recolector[" << recolectorIndex << "] recibió paquete para "
+                    << ipStr << (isResend ? " [RESEND]" : "") 
+                    << " | Mensaje: " << msg);
+
+    Ipv4Address destIp(ipStr.c_str());
+
     Ptr<Packet> safeCopy = packet->Copy();
-    BufferPacket(recolectorNode, destIp, 6000, safeCopy);
+    if (isResend)
+    {
+        BufferPacketSent(recolectorNode, destIp, msg, safeCopy);
+        //add sim time
 
-    NS_LOG_INFO("Recolector[" << recolectorIndex << "] bufferizó paquete para el SuperCluster " 
-                << destIp);
+        NS_LOG_INFO("["<<Simulator::Now().GetSeconds()<<"s] Recolector[" << recolectorIndex << "] bufferizó paquete REENVÍO para " << destIp);
+    }
+    else
+    {
+        BufferPacket(recolectorNode, destIp, msg, safeCopy);
+        NS_LOG_INFO("["<<Simulator::Now().GetSeconds()<<"s]Recolector[" << recolectorIndex << "] bufferizó paquete para " << destIp);
+    }
 }
+
+
 
 // Callback para el supercluster
 void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const Packet> packet)
 {
     uint32_t pktSize = packet->GetSize();
 
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
-                    << "s] SuperCluster[" << scIndex << "] recibió paquete de tamaño "
-                    << pktSize);
-
     std::vector<uint8_t> buffer(pktSize);
     packet->CopyData(buffer.data(), pktSize);
     std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
 
     // Separar IP destino y mensaje
     size_t sep = payload.find('|');
+
+    //update log with destination ip and message
+    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
+                    << "s] SuperCluster[" << scIndex << "] recibió paquete para "
+                    << payload.substr(0, sep) << " | Mensaje: " 
+                    << payload.substr(sep + 1));
+    
     if (sep == std::string::npos)
     {
         NS_LOG_WARN("SuperCluster[" << scIndex << "] recibió paquete mal formado: " << payload);
@@ -732,10 +777,10 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
     }
 
     std::string ipStr = payload.substr(0, sep);
-    std::string msg = payload.substr(sep + 1);
+    std::string msg = payload.substr(sep + 1)+"|RESEND"; 
 
-    // Aquí asumimos que todos los paquetes que recibe un recolector van al supercluster
-    Ipv4Address destIp = g_superAddr; // variable global que definimos antes
+    //setear destip
+    Ipv4Address destIp(ipStr.c_str());
 
     //discard if the message is intended for the supercluster itself
     Ptr<Ipv4> scIpv4 = scNode->GetObject<Ipv4>();
@@ -745,9 +790,14 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
         return;
     }
 
-    // Bufferizar el paquete completo hacia el supercluster
-    Ptr<Packet> safeCopy = packet->Copy();
-    BufferPacket(scNode, destIp, 6000, safeCopy);
+    // 🔹 Marcar el payload como RESEND antes de bufferizar
+    std::string resendPayload = ipStr + "|" + msg + "|RESEND";
+    Ptr<Packet> newPkt = Create<Packet>(reinterpret_cast<const uint8_t*>(resendPayload.c_str()), resendPayload.size());
+
+    // Bufferizar el paquete completo en el buffer de reenvío
+    BufferPacketSent(scNode, destIp, msg, newPkt);
+
+    NS_LOG_INFO("SuperCluster[" << scIndex << "] bufferizó mensaje para REENVÍO a " << destIp);
 }
 
 void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeContainer &superCluster, NodeContainer &clusterHeads, double simTime)
@@ -922,30 +972,29 @@ static void SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector cen
     Simulator::Schedule(Seconds(simEnd), &ConstantVelocityMobilityModel::SetVelocity, mv, Vector(0,0,0));
 }
 
-
 void PeriodicProximityCheck(NodeContainer &clusterHeads,
                             NodeContainer &recolectors,
                             double checkInterval)
 {
-    double ptDbm = 0.0;            // Potencia de transmisión (ejemplo)
-    double rxSensitivityDbm = -85; // Sensibilidad típica WiFi
+    double ptDbm = 0.0;            
+    double rxSensitivityDbm = -85; 
     double txGainDb = 0.0;
     double rxGainDb = 0.0;
 
-    // Accedemos al modelo multi-zona global que configuraste
     Ptr<MultiZonePropagationLossModel> multiZone = g_multiZoneModel;
-    if (multiZone == nullptr)
-    {
+    if (!multiZone) {
         NS_LOG_WARN("MultiZone model no inicializado. Abortando chequeo.");
         return;
     }
 
-    // Iteramos sobre todos los Cluster Heads y Recolectores
     for (uint32_t i = 0; i < clusterHeads.GetN(); ++i)
     {
         Ptr<Node> ch = clusterHeads.Get(i);
         Ptr<MobilityModel> mobCH = ch->GetObject<MobilityModel>();
         Vector posCH = mobCH->GetPosition();
+
+        // Obtener los nodos que pertenecen a este cluster head
+        auto &clusterNodes = g_clusterNodesMap[ch->GetId()];
 
         for (uint32_t j = 0; j < recolectors.GetN(); ++j)
         {
@@ -953,19 +1002,14 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
             Ptr<MobilityModel> mobR = recolector->GetObject<MobilityModel>();
             Vector posR = mobR->GetPosition();
 
-            // Calcular distancia entre CH y Recolector
             double dx = posCH.x - posR.x;
             double dy = posCH.y - posR.y;
             double dz = posCH.z - posR.z;
-            double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            double distance = std::sqrt(dx*dx + dy*dy + dz*dz);
 
-            // Obtener pérdida de propagación usando tu modelo multi-zona
             double lossDb = multiZone->GetLoss(posCH, posR);
-
-            // Calcular potencia recibida
             double prDbm = ptDbm + txGainDb + rxGainDb - lossDb;
 
-            // Determinar si puede comunicarse
             bool canSend = prDbm >= rxSensitivityDbm;
 
             if (canSend)
@@ -975,26 +1019,57 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
                                 << " (Dist=" << distance << " m, PL=" << lossDb
                                 << " dB, Pr=" << prDbm << " dBm)");
 
-                // Aquí podrías activar el envío de paquetes:
-                // Activar envío de paquetes bufferizados solo si hay paquetes
-
-                //get recolector address
-                Ptr<Node> node = recolectors.Get(j);
-                Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+                // Direccion IP del recolector
+                Ptr<Ipv4> ipv4 = recolector->GetObject<Ipv4>();
                 Ipv4Address recolectorAddr = ipv4->GetAddress(1,0).GetLocal();
-                
+
+                // 1️⃣ Enviar paquetes bufferizados del CH
                 while (HasBufferedPackets(ch)) {
                     BufferedPacket bpkt = PeekBufferedPacket(ch);
                     NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] CH " << i
                                     << " enviando paquete bufferizado a Recolector " << j
                                     << " (dest=" << bpkt.dest << ", tamaño=" << bpkt.packet->GetSize() << " bytes)");
-                    
-                    SendSensorData(ch, recolectorAddr, 5000 , bpkt.dest, "Datos bufferizados");
 
-                    // Eliminar paquete de la cola
+                    
+                    SendSensorData(ch, recolectorAddr, 5000, bpkt.dest, bpkt.msg);
                     PopBufferedPacket(ch);
                 }
 
+                // 2️⃣ Revisar buffer de paquetes enviados por el recolector para reenvío
+                while (HasBufferedPacketsSent(recolector)) {
+
+                    //ADD LOG
+                    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Recolector " << j
+                                    << " revisando paquete bufferizado para reenvío al CH " << i);
+
+                    BufferedPacket bpkt = PeekBufferedPacketSent(recolector);
+
+                    // Solo enviar si el destino pertenece al cluster del CH
+                    bool belongsToCluster = false;
+                    for (uint32_t k = 0; k < clusterNodes.GetN(); ++k) {
+                        Ptr<Node> node = clusterNodes.Get(k);
+                        Ptr<Ipv4> ipv4Node = node->GetObject<Ipv4>();
+                        if (ipv4Node && bpkt.dest == ipv4Node->GetAddress(1,0).GetLocal()) {
+                            belongsToCluster = true;
+                            break;
+                        }
+                    }
+
+                    if (belongsToCluster) {
+
+                        //get ch ip
+                        Ptr<Ipv4> chIpv4 = ch->GetObject<Ipv4>();
+                        Ipv4Address chAddr = chIpv4->GetAddress(1,0).GetLocal();
+                        NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Recolector " << j
+                                        << " reenviando paquete a CH " << i
+                                        << " (dest=" << bpkt.dest << ", tamaño=" << bpkt.packet->GetSize() << " bytes)");
+                        SendSensorData(recolector, chAddr, 4000, bpkt.dest, bpkt.msg);
+                        PopBufferedPacketSent(recolector);
+                    } else {
+                        // No pertenece a este cluster, lo dejamos para otro CH
+                        break;
+                    }
+                }
             }
             else
             {
@@ -1006,13 +1081,14 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
         }
     }
 
-    // Reprogramar este chequeo para que se repita cada cierto tiempo
     Simulator::Schedule(Seconds(checkInterval),
                         &PeriodicProximityCheck,
                         std::ref(clusterHeads),
                         std::ref(recolectors),
                         checkInterval);
 }
+
+
 
 void SchedulePeriodicProximityCheck(NodeContainer &clusterHeads,
                                     NodeContainer &recolectors,
@@ -1069,16 +1145,38 @@ void SuperClusterProximityCheck(NodeContainer &superCluster,
                 
                 while (HasBufferedPackets(rcNode)) {
                     BufferedPacket bpkt = PeekBufferedPacket(rcNode);
+
+                    //get supercluster ip
+                    Ptr<Ipv4> scIpv4 = scNode->GetObject<Ipv4>();
+                    Ipv4Address scAddr = scIpv4->GetAddress(1,0).GetLocal();
                     
                     NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Recolector " << j
                                     << " enviando paquete bufferizado a SuperCluster " << i
                                     << " (dest=" << bpkt.dest << ", tamaño=" << bpkt.packet->GetSize() << " bytes)");
 
-                    SendSensorData(rcNode, bpkt.dest , 6000 , bpkt.dest, "Datos bufferizados");
+                    SendSensorData(rcNode, scAddr , 6000 , bpkt.dest, bpkt.msg );
 
                     // Eliminar paquete de la cola
                     PopBufferedPacket(rcNode);
                 }
+
+
+                while (HasBufferedPacketsSent(scNode)) {
+                    BufferedPacket bpkt = PeekBufferedPacketSent(scNode);
+                    
+                    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] SuperCluster " << i
+                                    << " enviando paquete bufferizado al Recolector " << j
+                                    << " (dest=" << bpkt.dest << ", tamaño=" << bpkt.packet->GetSize() << " bytes)");
+
+                    
+                    SendSensorData(scNode, recolectorAddr , 5000 , bpkt.dest, bpkt.msg );
+
+                    // Eliminar paquete de la cola
+                    PopBufferedPacketSent(scNode);
+
+                }
+                
+
                 
             }
             else
@@ -1103,6 +1201,51 @@ void ScheduleSuperClusterProximityCheck(NodeContainer &superCluster,
         SuperClusterProximityCheck(superCluster, recolectors, checkInterval);
     });
 }
+
+void ScheduleSendToOtherCluster(Ptr<Node> srcNode, Ipv4Address destIp, uint16_t port, double sizeBytes, double delaySeconds) {
+    Simulator::Schedule(Seconds(delaySeconds), [=]() {
+        NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Nodo " 
+                        << srcNode->GetId() 
+                        << " preparando envío de paquete a nodo con IP " << destIp);
+
+        // Crear el paquete
+        Ptr<Packet> pkt = Create<Packet>(static_cast<uint32_t>(sizeBytes));
+
+        // -----------------------------
+        // Buscar el cluster head del nodo emisor
+        // -----------------------------
+        Ipv4Address clusterHeadIp;
+        bool found = false;
+        for (auto &pair : g_clusterNodesMap) {
+            uint32_t chId = pair.first;
+            NodeContainer nodes = pair.second;
+
+            for (uint32_t i = 0; i < nodes.GetN(); ++i) {
+                if (nodes.Get(i)->GetId() == srcNode->GetId()) {
+                    Ptr<Ipv4> ipv4 = NodeList::GetNode(chId)->GetObject<Ipv4>();
+                    clusterHeadIp = ipv4->GetAddress(1,0).GetLocal(); // interfaz ad-hoc
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+
+        if (!found) {
+            NS_LOG_WARN("Nodo " << srcNode->GetId() << " no pertenece a ningún cluster head, usando destIp directamente");
+            clusterHeadIp = destIp;
+        }
+
+        NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Nodo "
+                        << srcNode->GetId() 
+                        << " enviará paquete primero al ClusterHead con IP " << clusterHeadIp);
+
+        // Bufferizar el paquete hacia el cluster head, indicando el destino final
+        SendStatusEvent(srcNode, clusterHeadIp, destIp, "Saludos desde el nodo"+std::to_string(srcNode->GetId())+"!");
+    });
+}
+
+
 
 void RunSimulation(double simTime)
 {
@@ -1247,7 +1390,15 @@ int main(int argc, char *argv[])
     InstallUdpServers(sensors, recolectors, superCluster, clusterHeads, simTime);
 
     // Configurar clientes intra-cluster (sensores -> cluster heads)
-    SetupIntraClusterClients(sensors, clusterHeads, interfaces);
+    //SetupIntraClusterClients(sensors, clusterHeads, interfaces);
+
+    Ptr<Node> src = sensors.Get(2);
+    Ipv4Address destIp = interfaces.GetAddress(7); // dirección IP del nodo destino
+    uint16_t port = 6000;
+    double packetSize = 100; // bytes
+    double delay = 5.0; // segundos después de iniciar la simulación
+
+    ScheduleSendToOtherCluster(src, destIp, port, packetSize, delay);
 
     // -----------------------------------------------------------------
     // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹

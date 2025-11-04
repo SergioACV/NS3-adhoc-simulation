@@ -9,9 +9,6 @@
 #include <queue>
 #include <cmath>
 
-// Definir un tamaño máximo de buffer por nodo
-static const uint32_t MAX_BUFFER_SIZE = 50; // por ejemplo 50 paquetes
-
 namespace ns3 {
 
 // -------------------
@@ -22,29 +19,30 @@ NS_LOG_COMPONENT_DEFINE("StoreCarryForward");
 // -------------------
 // Variables internas
 // -------------------
-static std::map<uint32_t, std::queue<BufferedPacket>> g_packetBuffer;
+static std::map<uint32_t, std::queue<BufferedPacket>> g_packetBuffer;       // buffer normal por nodo
+static std::map<uint32_t, std::queue<BufferedPacket>> g_packetBufferSent;   // buffer para paquetes enviados o por reenviar
 
+static const uint32_t MAX_BUFFER_SIZE = 50; // tamaño máximo del buffer
 
-
-// -------------------
-void BufferPacket(Ptr<Node> sender, Ipv4Address dest, uint16_t port, Ptr<const Packet> pkt) {
+// ===================
+// Métodos para el buffer normal
+// ===================
+void BufferPacket(Ptr<Node> sender, Ipv4Address dest, std::string msg, Ptr<const Packet> pkt) {
     BufferedPacket bpkt;
     bpkt.sender = sender;
     bpkt.dest = dest;
-    bpkt.port = port;
-    bpkt.packet = pkt->Copy();   // copiar el paquete
+    bpkt.msg = msg;
+    bpkt.packet = pkt->Copy();
     bpkt.timestamp = Simulator::Now().GetSeconds();
 
     auto &queue = g_packetBuffer[sender->GetId()];
 
-    // Si la cola ya está llena, descartar el paquete más antiguo (FIFO)
     if (queue.size() >= MAX_BUFFER_SIZE) {
         NS_LOG_WARN("[" << Simulator::Now().GetSeconds() << "s] Nodo "
                         << sender->GetId() << " buffer lleno, descartando paquete más antiguo");
         queue.pop();
     }
 
-    // Añadir el nuevo paquete
     queue.push(bpkt);
 
     NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Paquete bufferizado por Node "
@@ -53,46 +51,71 @@ void BufferPacket(Ptr<Node> sender, Ipv4Address dest, uint16_t port, Ptr<const P
                     << queue.size() << ")");
 }
 
-
-
-// -------------------
-bool HasBufferedPackets(Ptr<Node> node)
-{
+bool HasBufferedPackets(Ptr<Node> node) {
     uint32_t nodeId = node->GetId();
-
-    if (g_packetBuffer.find(nodeId) == g_packetBuffer.end() ||
-        g_packetBuffer[nodeId].empty())
-    {
-        NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
-                        << "s] Nodo " << nodeId
-                        << " no tiene paquetes en el buffer (cola vacía).");
-        return false;
-    }
-
-    NS_LOG_INFO("[" << Simulator::Now().GetSeconds()
-                    << "s] Nodo " << nodeId
-                    << " tiene " << g_packetBuffer[nodeId].size()
-                    << " paquetes en el buffer listos para enviar.");
-    return true;
+    return g_packetBuffer.find(nodeId) != g_packetBuffer.end() && !g_packetBuffer[nodeId].empty();
 }
 
-// -------------------
+BufferedPacket PeekBufferedPacket(Ptr<Node> node) {
+    auto it = g_packetBuffer.find(node->GetId());
+    if (it != g_packetBuffer.end() && !it->second.empty()) {
+        return it->second.front();
+    }
+    return BufferedPacket();
+}
 
+void PopBufferedPacket(Ptr<Node> node) {
+    auto it = g_packetBuffer.find(node->GetId());
+    if (it != g_packetBuffer.end() && !it->second.empty()) {
+        it->second.pop();
+    }
+}
 
-    BufferedPacket PeekBufferedPacket(Ptr<Node> node) {
-        auto it = g_packetBuffer.find(node->GetId());
-        if (it != g_packetBuffer.end() && !it->second.empty()) {
-            return it->second.front();
-        }
-        return BufferedPacket(); // paquete vacío si no hay nada
+// ===================
+// Métodos para el buffer enviado / SC
+// ===================
+void BufferPacketSent(Ptr<Node> sender, Ipv4Address dest, std::string msg, Ptr<const Packet> pkt) {
+    BufferedPacket bpkt;
+    bpkt.sender = sender;
+    bpkt.dest = dest;
+    bpkt.msg = msg;
+    bpkt.packet = pkt->Copy();
+    bpkt.timestamp = Simulator::Now().GetSeconds();
+
+    auto &queue = g_packetBufferSent[sender->GetId()];
+
+    if (queue.size() >= MAX_BUFFER_SIZE) {
+        NS_LOG_WARN("[" << Simulator::Now().GetSeconds() << "s] Nodo "
+                        << sender->GetId() << " buffer enviado lleno, descartando paquete más antiguo");
+        queue.pop();
     }
 
-    void PopBufferedPacket(Ptr<Node> node) {
-        auto it = g_packetBuffer.find(node->GetId());
-        if (it != g_packetBuffer.end() && !it->second.empty()) {
-            it->second.pop();
-        }
-    }
+    queue.push(bpkt);
 
+    NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Paquete enviado bufferizado por Node "
+                    << sender->GetId() << " hacia " << dest
+                    << " (tamaño: " << pkt->GetSize() << " bytes), cola actual: " 
+                    << queue.size() << ")");
+}
+
+bool HasBufferedPacketsSent(Ptr<Node> node) {
+    uint32_t nodeId = node->GetId();
+    return g_packetBufferSent.find(nodeId) != g_packetBufferSent.end() && !g_packetBufferSent[nodeId].empty();
+}
+
+BufferedPacket PeekBufferedPacketSent(Ptr<Node> node) {
+    auto it = g_packetBufferSent.find(node->GetId());
+    if (it != g_packetBufferSent.end() && !it->second.empty()) {
+        return it->second.front();
+    }
+    return BufferedPacket();
+}
+
+void PopBufferedPacketSent(Ptr<Node> node) {
+    auto it = g_packetBufferSent.find(node->GetId());
+    if (it != g_packetBufferSent.end() && !it->second.empty()) {
+        it->second.pop();
+    }
+}
 
 } // namespace ns3

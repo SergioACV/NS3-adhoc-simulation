@@ -8,6 +8,7 @@
 
 #include <queue>
 #include <map>
+#include <string>
 
 namespace ns3 {
 
@@ -17,22 +18,33 @@ namespace ns3 {
 struct BufferedPacket {
     Ptr<Node> sender;
     Ipv4Address dest;
-    uint16_t port;
     Ptr<Packet> packet; 
     uint32_t size;
+    std::string msg; 
     double timestamp;
 };
 
 // -------------------
 // Funciones públicas
 // -------------------
-void BufferPacket(Ptr<Node> sender, Ipv4Address dest, uint16_t port, Ptr<const Packet> pkt);
+void BufferPacket(Ptr<Node> sender, Ipv4Address dest, std::string msg, Ptr<const Packet> pkt);
 bool HasBufferedPackets(Ptr<Node> node);
 // Devuelve el siguiente paquete de la cola sin eliminarlo
 BufferedPacket PeekBufferedPacket(Ptr<Node> node);
 
 // Elimina el paquete que ya fue enviado
 void PopBufferedPacket(Ptr<Node> node);
+
+// ===================
+// Métodos para el buffer enviado / SC
+// ===================
+void BufferPacketSent(Ptr<Node> sender, Ipv4Address dest, std::string msg, Ptr<const Packet> pkt);
+bool HasBufferedPacketsSent(Ptr<Node> node);
+// Devuelve el siguiente paquete de la cola sin eliminarlo
+BufferedPacket PeekBufferedPacketSent(Ptr<Node> node);
+// Elimina el paquete que ya fue enviado
+void PopBufferedPacketSent(Ptr<Node> node);
+
 
 
 } // namespace ns3
