@@ -23,17 +23,21 @@
 #include <vector>
 #include <map>     // REQUERIDO PARA ESTADO DEL DRON
 #include <limits>  // REQUERIDO PARA ESTADO DEL DRON
+#include <fstream> // Para exportar métricas
+#include <iomanip> // Para formato de salida
 
 using namespace ns3;
 
 // ---------------------------
-// 🔹 Globales
+//  Globales
 // ---------------------------
 static Ptr<MultiZonePropagationLossModel> g_multiZoneModel = 0;
 static AnimationInterface* g_anim = nullptr; // Puntero global de NetAnim
 static Ptr<UniformRandomVariable> g_rand;    // Generador aleatorio para alarmas
-// Mapea cada Cluster Head a sus nodos
+// Mapea cada Cluster Head a sus nodos (por ID de nodo)
 static std::map<uint32_t, NodeContainer> g_clusterNodesMap;
+// Mapea índice de cluster (0,1,2) a sus nodos sensores - PARA MÉTRICAS
+static std::map<uint32_t, NodeContainer> g_clusterByIndexMap;
 
 Ipv4Address g_superAddr; 
 
@@ -41,14 +45,137 @@ Ipv4Address g_superAddr;
 // Mapa para rastrear el "próximo evento de patrulla" de cada dron.
 static std::map< Ptr<ConstantVelocityMobilityModel>, EventId > g_droneNextPatrolEvent;
 
-// 🔹 CORRECCIÓN DE COMPILACIÓN: Era std::map, no std.map
+//  CORRECCIÓN DE COMPILACIÓN: Era std::map, no std.map
 static std::map< Ptr<ConstantVelocityMobilityModel>, uint32_t > g_dronePatrolIndex;
+
+// ---------------------------
+//  ESTRUCTURAS PARA MÉTRICAS MEJORADAS
+// ---------------------------
+struct ClusterMetrics {
+    uint32_t packetsSent = 0;
+    uint32_t packetsDelivered = 0;
+    uint32_t packetsLost = 0;
+    std::vector<double> latencies;
+    double totalLatency = 0.0;
+    uint32_t packetsUnderRain = 0;
+    uint32_t deliveredUnderRain = 0;
+    
+    double GetPDR() const {
+        return packetsSent > 0 ? (100.0 * packetsDelivered / packetsSent) : 0.0;
+    }
+    
+    double GetAvgLatency() const {
+        return latencies.empty() ? 0.0 : (totalLatency / latencies.size());
+    }
+    
+    double GetPacketLossRate() const {
+        return packetsSent > 0 ? (100.0 * packetsLost / packetsSent) : 0.0;
+    }
+};
+
+struct InterClusterMetrics {
+    std::vector<double> latenciesAtoB;  // Cluster A -> B
+    std::vector<double> latenciesAtoC;  // Cluster A -> C
+    std::vector<double> latenciesBtoA;  // Cluster B -> A
+    std::vector<double> latenciesBtoC;  // Cluster B -> C
+    std::vector<double> latenciesCtoA;  // Cluster C -> A
+    std::vector<double> latenciesCtoB;  // Cluster C -> B
+    
+    double GetAvgLatency(const std::vector<double>& lats) const {
+        if (lats.empty()) return 0.0;
+        double sum = 0.0;
+        for (double lat : lats) sum += lat;
+        return sum / lats.size();
+    }
+};
+
+struct SimulationMetrics {
+    // Paquetes globales
+    uint32_t totalPacketsSent = 0;
+    uint32_t packetsDeliveredToSuper = 0;
+    uint32_t packetsLost = 0;
+    uint32_t packetsBuffered = 0;
+    
+    // Latencias globales
+    std::vector<double> latencies;
+    double totalLatency = 0.0;
+    double minLatency = std::numeric_limits<double>::max();
+    double maxLatency = 0.0;
+    
+    // Métricas por cluster (0=A, 1=B, 2=C)
+    std::map<uint32_t, ClusterMetrics> clusterMetrics;
+    
+    // Métricas inter-cluster
+    InterClusterMetrics interCluster;
+    
+    // Conectividad
+    uint32_t connectivityChecks = 0;
+    uint32_t successfulConnections = 0;
+    
+    // Lluvia (CORREGIDO: ahora trackea correctamente)
+    double timeUnderRain = 0.0;
+    uint32_t packetsUnderRain = 0;      // Enviados bajo lluvia
+    uint32_t deliveredUnderRain = 0;     // Entregados que fueron enviados bajo lluvia
+    uint32_t packetsSentNoRain = 0;      // Enviados sin lluvia
+    uint32_t deliveredNoRain = 0;        // Entregados que fueron enviados sin lluvia
+    
+    // Drones
+    uint32_t droneInterceptions = 0;
+    uint32_t alarmsTriggers = 0;
+    
+    // Timestamps y trazabilidad
+    std::map<uint32_t, double> packetSendTime;        // packet UID -> send time
+    std::map<uint32_t, bool> packetSentInRain;        // packet UID -> was sent during rain
+    std::map<uint32_t, uint32_t> packetSourceCluster; // packet UID -> source cluster (0=A,1=B,2=C)
+    std::map<uint32_t, uint32_t> packetDestCluster;   // packet UID -> dest cluster for inter-cluster
+    
+    // Cálculos
+    double GetPDR() const {
+        return totalPacketsSent > 0 ? (100.0 * packetsDeliveredToSuper / totalPacketsSent) : 0.0;
+    }
+    
+    double GetPacketLossRate() const {
+        return totalPacketsSent > 0 ? (100.0 * packetsLost / totalPacketsSent) : 0.0;
+    }
+    
+    double GetAverageLatency() const {
+        return latencies.empty() ? 0.0 : (totalLatency / latencies.size());
+    }
+    
+    double GetLatencyStdDev() const {
+        if (latencies.size() < 2) return 0.0;
+        double avg = GetAverageLatency();
+        double variance = 0.0;
+        for (double lat : latencies) {
+            variance += (lat - avg) * (lat - avg);
+        }
+        return std::sqrt(variance / latencies.size());
+    }
+    
+    double GetConnectivityRate() const {
+        return connectivityChecks > 0 ? (100.0 * successfulConnections / connectivityChecks) : 0.0;
+    }
+    
+    // CORREGIDO: PDR bajo lluvia solo de paquetes enviados bajo lluvia
+    double GetRainPDR() const {
+        return packetsUnderRain > 0 ? (100.0 * deliveredUnderRain / packetsUnderRain) : 0.0;
+    }
+    
+    // PDR sin lluvia
+    double GetNoRainPDR() const {
+        return packetsSentNoRain > 0 ? (100.0 * deliveredNoRain / packetsSentNoRain) : 0.0;
+    }
+};
+
+static SimulationMetrics g_metrics;
+static bool g_isRaining = false;
+static uint32_t g_nextPacketUid = 1;
 
 
 NS_LOG_COMPONENT_DEFINE("ManetRecolector");
 
 // ---------------------------
-// 🔹 Declaración de funciones
+//  Declaración de funciones
 // ---------------------------
 Ptr<YansWifiChannel> CreateMultiZoneChannel();
 void ConfigureWifiAdhoc(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy);
@@ -81,12 +208,12 @@ void SendStatusEvent(Ptr<Node> from, Ipv4Address toAddr, std::string msg);
 void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeContainer &superCluster, NodeContainer &clusterHeads, double simTime);
 // Función para instalar un socket "listener" en cada ClusterHead
 void InstallClusterHeadReceivers(NodeContainer &clusterHeads, uint16_t listenPort = 5000);
-void SetupIntraClusterClients(NodeContainer &sensors,NodeContainer &clusterHeads,Ipv4InterfaceContainer &interfaces);
+void SetupIntraClusterClients(NodeContainer &sensors,NodeContainer &clusterHeads,Ipv4InterfaceContainer &interfaces, double simTime);
 // ScheduleRecolectorMovement ahora recibe simEnd para repetir hasta el final
 void ScheduleRecolectorMovement(Ptr<ConstantVelocityMobilityModel> mv,
                                 Vector A, Vector B, Vector C, double speed, double simEnd, Vector centroid);
 
-void RunSimulation(double simTime);
+void RunSimulation(double simTime, bool enableRain = true);
 
 void PeriodicProximityCheck(NodeContainer &clusterHeads,NodeContainer &recolectors,double checkInterval);
 static void ReturnToSuperCallback(Ptr<ConstantVelocityMobilityModel> mv, Vector centroid, double simTime, double patrolSpeed);
@@ -95,8 +222,13 @@ static void SetupReturnToSuper(Ptr<ConstantVelocityMobilityModel> mv, Vector cen
 double Dist2D(const Vector &a, const Vector &b);
 void SchedulePeriodicProximityCheck(NodeContainer &clusterHeads,NodeContainer &recolector,double checkInterval = 1.0);
 
+// Funciones para análisis de métricas
+void PrintMetricsReport(const std::string& scenarioName, double simTime, uint32_t nDrones);
+void ExportMetricsToCSV(const std::string& filename, const std::string& scenarioName, double simTime, uint32_t nDrones);
+void AnalyzeCoverageArea(NodeContainer& nodes, Vector A, Vector B, Vector C);
+
 // -----------------------------------------------------------------
-// 🔹 LÓGICA DE MOVIMIENTO Y ALARMA (SIMULADA) 🔹
+//  LÓGICA DE MOVIMIENTO Y ALARMA (SIMULADA) 
 // -----------------------------------------------------------------
 
 // --- Declaración de funciones de la nueva lógica ---
@@ -247,6 +379,9 @@ void TriggerRandomAlarm(NodeContainer sensors, NodeContainer recolector,
                         std::vector<Ptr<ConstantVelocityMobilityModel>> recolectorMVs,
                         std::vector<Vector> route, double patrolSpeed, double alarmSpeed, double simTime)
 {
+    //  Registrar alarma
+    g_metrics.alarmsTriggers++;
+    
     // --- 1. Generar la alarma ---
     uint32_t sensorIndex = g_rand->GetInteger(0, sensors.GetN() - 1);
     Ptr<Node> alarmNode = sensors.Get(sensorIndex);
@@ -265,6 +400,9 @@ void TriggerRandomAlarm(NodeContainer sensors, NodeContainer recolector,
     }
     
     NS_LOG_INFO("... Dron " << closestNode->GetId() << " es el más cercano y responderá.");
+
+    //  Registrar intercepción de dron
+    g_metrics.droneInterceptions++;
 
     // --- 3. Interrumpir la patrulla del dron ---
     EventId patrolEvent = g_droneNextPatrolEvent[closestMv];
@@ -349,9 +487,9 @@ void ConfigureWifiAdhoc(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHel
     // Asignar el canal físico
     wifiPhy.SetChannel(channel);
 
-    // [NUEVO] Configuración base de potencia para nodos normales
-    wifiPhy.Set("TxPowerStart", DoubleValue(16.0));
-    wifiPhy.Set("TxPowerEnd", DoubleValue(16.0));
+    // Configuración base de potencia para nodos normales (AUMENTADA para mejor PDR)
+    wifiPhy.Set("TxPowerStart", DoubleValue(23.0)); // Aumentado de 16 a 23 dBm
+    wifiPhy.Set("TxPowerEnd", DoubleValue(23.0));   // ~200 metros de rango teórico
 }
 
 void InstallWifiDevices(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHelper &wifiPhy,
@@ -364,13 +502,13 @@ void InstallWifiDevices(WifiHelper &wifi, WifiMacHelper &wifiMac, YansWifiPhyHel
     // Nodos sensores (potencia normal)
     sensorDevices = wifi.Install(wifiPhy, wifiMac, sensors);
 
-    // [NUEVO] Si la opción está activada, los líderes usan más potencia
+    // Si la opción está activada, los líderes usan más potencia
     if (useLeaderSignalPower)
     {
-        NS_LOG_INFO("⚡ Cluster Heads con mayor potencia de transmisión activado.");
+        NS_LOG_INFO("Cluster Heads con mayor potencia de transmisión activado.");
         YansWifiPhyHelper highPowerPhy = wifiPhy;
-        highPowerPhy.Set("TxPowerStart", DoubleValue(20.0));
-        highPowerPhy.Set("TxPowerEnd", DoubleValue(20.0));
+        highPowerPhy.Set("TxPowerStart", DoubleValue(27.0)); // Aumentado de 20 a 27 dBm
+        highPowerPhy.Set("TxPowerEnd", DoubleValue(27.0));   // ~300 metros de rango
         headDevices = wifi.Install(highPowerPhy, wifiMac, clusterHeads);
     }
     else
@@ -496,7 +634,11 @@ void SendSensorData(Ptr<Node> from, Ipv4Address toAddr, uint16_t port,
 {
     if (from == nullptr) return;
 
-    // Construir payload
+    // NOTA: Las métricas se registran SOLO en SendStatusEvent (envío original del sensor)
+    // Esta función se usa para REENVÍOS (CH→Recolector→SuperCluster)
+    // El mensaje YA contiene el UID original y cluster, solo lo propagamos
+    
+    // Construir payload directamente con el mensaje recibido (que ya tiene UID y cluster)
     std::ostringstream oss;
     oss << finalDest << "|" << msg;
     std::string payload = oss.str();
@@ -521,9 +663,46 @@ void SendStatusEvent(Ptr<Node> from, Ipv4Address chAddr, Ipv4Address finalDest, 
 {
     uint16_t port = 4000; // Puerto del CH
 
-    // Creamos el payload con la IP destino y el mensaje
+    // REGISTRAR MÉTRICAS - Obtener IP del sensor desde el nodo 'from'
+    Ptr<Ipv4> ipv4 = from->GetObject<Ipv4>();
+    Ipv4Address sensorAddr = ipv4->GetAddress(1, 0).GetLocal(); // Interfaz 1 = WiFi
+    
+    uint32_t packetUid = g_nextPacketUid++;
+    g_metrics.totalPacketsSent++;
+    g_metrics.packetSendTime[packetUid] = Simulator::Now().GetSeconds();
+    
+    // Rastrear estado de lluvia al momento del envío
+    if (g_isRaining) {
+        g_metrics.packetsUnderRain++;
+        g_metrics.packetSentInRain[packetUid] = true;
+    } else {
+        g_metrics.packetsSentNoRain++;
+        g_metrics.packetSentInRain[packetUid] = false;
+    }
+    
+    // Determinar cluster basado en la IP del SENSOR (from)
+    uint32_t sourceCluster = 999;
+    uint32_t lastOctet = sensorAddr.Get() & 0xFF;
+    
+    if (lastOctet > 0 && lastOctet <= 100) {
+        uint32_t sensorIndex = lastOctet - 1; // IP .1 = sensor 0
+        sourceCluster = sensorIndex / 3; // 0,1,2→0; 3,4,5→1; 6,7,8→2
+        
+        if (sourceCluster < 3) {
+            g_metrics.clusterMetrics[sourceCluster].packetsSent++;
+            if (g_isRaining) {
+                g_metrics.clusterMetrics[sourceCluster].packetsUnderRain++;
+            }
+        } else {
+            sourceCluster = 999;
+        }
+    }
+    
+    g_metrics.packetSourceCluster[packetUid] = sourceCluster;
+
+    // Creamos el payload con la IP del sensor como destino final
     std::ostringstream oss;
-    oss << finalDest << "|" << msg;
+    oss << sensorAddr << "|" << msg << "|UID:" << packetUid << "|SRC_CLUSTER:" << sourceCluster;
     std::string payload = oss.str();
 
     // Crear paquete con ese contenido
@@ -536,13 +715,14 @@ void SendStatusEvent(Ptr<Node> from, Ipv4Address chAddr, Ipv4Address finalDest, 
 
     NS_LOG_INFO("[" << Simulator::Now().GetSeconds() << "s] Sensor "
                     << from->GetId()
-                    << " envía STATUS: \"" << msg << "\" a "
-                    << finalDest);
+                    << " envía STATUS: \"" << msg << "\" a CH (finalDest="
+                    << sensorAddr << ") [UID=" << packetUid << ", Cluster=" << sourceCluster << "]");
 }
 
 void SetupIntraClusterClients(NodeContainer &sensors,
                               NodeContainer &clusterHeads,
-                              Ipv4InterfaceContainer &interfaces)
+                              Ipv4InterfaceContainer &interfaces,
+                              double simTime)
 {
 
     for (uint32_t i = 0; i < sensors.GetN(); ++i)
@@ -553,8 +733,8 @@ void SetupIntraClusterClients(NodeContainer &sensors,
         Ipv4Address headAddr = interfaces.GetAddress(9 + headIndex); // IP del CH
 
         double startTime = 2.0 + i * 0.2; // escalonamiento
-        double interval  = 30.0;
-        double stopTime  = 118.0;
+        double interval  = 10.0;  // Enviar cada 10 segundos
+        double stopTime  = simTime - 2.0;  // Hasta 2 segundos antes del fin
 
         // Programar envíos periódicos de Status/Event al Cluster Head
         for (double t = startTime; t <= stopTime; t += interval)
@@ -761,6 +941,81 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
     packet->CopyData(buffer.data(), pktSize);
     std::string payload(reinterpret_cast<char*>(buffer.data()), pktSize);
 
+    //  Registrar entrega exitosa al SuperCluster
+    g_metrics.packetsDeliveredToSuper++;
+    
+    // Extraer UID para análisis detallado
+    uint32_t packetUid = 0;
+    uint32_t sourceCluster = 999;
+    bool wasRain = false;
+    
+    size_t uidPos = payload.find("|UID:");
+    if (uidPos != std::string::npos) {
+        std::string uidStr = payload.substr(uidPos + 5);
+        size_t endUid = uidStr.find('|');
+        if (endUid != std::string::npos) {
+            uidStr = uidStr.substr(0, endUid);
+        }
+        
+        try {
+            packetUid = std::stoul(uidStr);
+            
+            // CORREGIDO: Verificar si fue enviado bajo lluvia (no el estado actual)
+            if (g_metrics.packetSentInRain.find(packetUid) != g_metrics.packetSentInRain.end()) {
+                wasRain = g_metrics.packetSentInRain[packetUid];
+                if (wasRain) {
+                    g_metrics.deliveredUnderRain++;
+                } else {
+                    g_metrics.deliveredNoRain++;
+                }
+            }
+            
+            // Calcular latencia
+            if (g_metrics.packetSendTime.find(packetUid) != g_metrics.packetSendTime.end()) {
+                double sendTime = g_metrics.packetSendTime[packetUid];
+                double latency = Simulator::Now().GetSeconds() - sendTime;
+                
+                // Latencia global
+                g_metrics.latencies.push_back(latency);
+                g_metrics.totalLatency += latency;
+                if (latency < g_metrics.minLatency) g_metrics.minLatency = latency;
+                if (latency > g_metrics.maxLatency) g_metrics.maxLatency = latency;
+                
+                // Latencia por cluster
+                if (g_metrics.packetSourceCluster.find(packetUid) != g_metrics.packetSourceCluster.end()) {
+                    sourceCluster = g_metrics.packetSourceCluster[packetUid];
+                    if (sourceCluster < 3) {
+                        g_metrics.clusterMetrics[sourceCluster].packetsDelivered++;
+                        g_metrics.clusterMetrics[sourceCluster].latencies.push_back(latency);
+                        g_metrics.clusterMetrics[sourceCluster].totalLatency += latency;
+                        
+                        if (wasRain) {
+                            g_metrics.clusterMetrics[sourceCluster].deliveredUnderRain++;
+                        }
+                    }
+                }
+            }
+        } catch (...) {
+            // Ignorar errores de conversión
+        }
+    }
+    
+    // Extraer cluster origen para métricas inter-cluster
+    size_t srcPos = payload.find("|SRC_CLUSTER:");
+    if (srcPos != std::string::npos) {
+        std::string srcStr = payload.substr(srcPos + 13);
+        size_t endSrc = srcStr.find('|');
+        if (endSrc != std::string::npos) {
+            srcStr = srcStr.substr(0, endSrc);
+        }
+        
+        try {
+            sourceCluster = std::stoul(srcStr);
+        } catch (...) {
+            // Ignorar
+        }
+    }
+
     // Separar IP destino y mensaje
     size_t sep = payload.find('|');
 
@@ -790,7 +1045,7 @@ void SuperClusterAppRecvCallback(uint32_t scIndex, Ptr<Node> scNode, Ptr<const P
         return;
     }
 
-    // 🔹 Marcar el payload como RESEND antes de bufferizar
+    //  Marcar el payload como RESEND antes de bufferizar
     msg = msg + "|RESEND";
     std::string resendPayload = ipStr + "|" + msg + "|RESEND";
     Ptr<Packet> newPkt = Create<Packet>(reinterpret_cast<const uint8_t*>(resendPayload.c_str()), resendPayload.size());
@@ -847,22 +1102,22 @@ void InstallUdpServers(NodeContainer &sensors, NodeContainer &recolectors, NodeC
     }
 
 
-    // 🔹 Servidor UDP interno en cada cluster head (para recibir de sensores)
+    //  Servidor UDP interno en cada cluster head (para recibir de sensores)
     {
         uint16_t intraPort = 4000;
         UdpServerHelper intraServer(intraPort);
 
         for (uint32_t i = 0; i < clusterHeads.GetN(); ++i)
         {
-            Ptr<Node> chNode = clusterHeads.Get(i);  // 🔹 obtenemos el puntero del Cluster Head
+            Ptr<Node> chNode = clusterHeads.Get(i);  //  obtenemos el puntero del Cluster Head
 
             ApplicationContainer apps = intraServer.Install(chNode);
             apps.Start(Seconds(0.5));
 
-            // 🔹 Obtiene la instancia del servidor UDP recién instalado
+            //  Obtiene la instancia del servidor UDP recién instalado
             Ptr<UdpServer> srv = DynamicCast<UdpServer>(apps.Get(0));
 
-            // 🔹 Conecta la traza Rx con tu callback, pasando también el nodo
+            //  Conecta la traza Rx con tu callback, pasando también el nodo
             srv->TraceConnectWithoutContext("Rx",
                 MakeBoundCallback(&ClusterHeadAppRecvCallback, i, chNode));
 
@@ -978,7 +1233,7 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
                             double checkInterval)
 {
     double ptDbm = 0.0;            
-    double rxSensitivityDbm = -85; 
+    double rxSensitivityDbm = -92; // Mejorado de -85 a -92 dBm (más sensible)
     double txGainDb = 0.0;
     double rxGainDb = 0.0;
 
@@ -1012,6 +1267,12 @@ void PeriodicProximityCheck(NodeContainer &clusterHeads,
             double prDbm = ptDbm + txGainDb + rxGainDb - lossDb;
 
             bool canSend = prDbm >= rxSensitivityDbm;
+
+            //  Registrar chequeo de conectividad
+            g_metrics.connectivityChecks++;
+            if (canSend) {
+                g_metrics.successfulConnections++;
+            }
 
             if (canSend)
             {
@@ -1106,8 +1367,8 @@ void SuperClusterProximityCheck(NodeContainer &superCluster,
                                 double checkInterval)
 {
     // Asumimos TxPower y sensibilidad fijas
-    double txPowerDbm = 0.0;       // dBm
-    double rxSensitivityDbm = -85.0; // dBm
+    double txPowerDbm = 0.0;         // dBm
+    double rxSensitivityDbm = -92.0; // Mejorado de -85 a -92 dBm (más sensible)
 
     Simulator::Schedule(Seconds(checkInterval), &SuperClusterProximityCheck,
                         superCluster, recolectors, checkInterval);
@@ -1248,26 +1509,34 @@ void ScheduleSendToOtherCluster(Ptr<Node> srcNode, Ipv4Address destIp, uint16_t 
 
 
 
-void RunSimulation(double simTime)
+void RunSimulation(double simTime, bool enableRain)
 {
-    
+    //  Aumentar período de lluvia para capturar más paquetes
+    double startRain = 60.0;   // Inicio de lluvia (1 minuto)
+    double endRain   = 180.0;  // Fin de lluvia (3 minutos) - 2 minutos de lluvia
 
-    double startRain = 20.0;
-    double endRain   = 40.0;
-
-    if (g_multiZoneModel)
+    if (g_multiZoneModel && enableRain)
     {
-        Simulator::Schedule(Seconds(startRain),
-                            &MultiZonePropagationLossModel::SetRainEffect,
-                            g_multiZoneModel, true);
+        Simulator::Schedule(Seconds(startRain), [=]() {
+            g_multiZoneModel->SetRainEffect(true);
+            g_isRaining = true; //  Actualizar estado global
+            g_metrics.timeUnderRain = endRain - startRain;
+            NS_LOG_INFO(" Lluvia activada en t=" << startRain << "s (duración: " << (endRain - startRain) << "s)");
+        });
 
-        Simulator::Schedule(Seconds(endRain),
-                            &MultiZonePropagationLossModel::SetRainEffect,
-                            g_multiZoneModel, false);
+        Simulator::Schedule(Seconds(endRain), [=]() {
+            g_multiZoneModel->SetRainEffect(false);
+            g_isRaining = false; //  Actualizar estado global
+            NS_LOG_INFO("☀️ Lluvia desactivada en t=" << endRain << "s");
+        });
     }
     else
     {
-        NS_LOG_WARN("g_multiZoneModel is null: CreateMultiZoneChannel() debe llamarse antes de RunSimulation()");
+        if (!g_multiZoneModel) {
+            NS_LOG_WARN("g_multiZoneModel is null: CreateMultiZoneChannel() debe llamarse antes de RunSimulation()");
+        } else {
+            NS_LOG_INFO("☀️ Simulación SIN lluvia (enableRain=false)");
+        }
     }
 
     
@@ -1279,7 +1548,202 @@ void RunSimulation(double simTime)
 }
 
 // ---------------------------
-// 🔹 Main
+//  FUNCIONES DE ANÁLISIS DE MÉTRICAS
+// ---------------------------
+
+void PrintMetricsReport(const std::string& scenarioName, double simTime, uint32_t nDrones)
+{
+    std::cout << "\n╔══════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║       REPORTE DE MÉTRICAS - " << scenarioName << std::setw(35 - scenarioName.length()) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Configuración de simulación
+    std::cout << "║ CONFIGURACIÓN:                                               ║\n";
+    std::cout << "║   • Tiempo de simulación: " << std::fixed << std::setprecision(1) 
+              << std::setw(10) << simTime << " s" << std::setw(23) << "║\n";
+    std::cout << "║   • Número de drones: " << std::setw(10) << nDrones << std::setw(30) << "║\n";
+    std::cout << "║   • Tiempo bajo lluvia: " << std::setw(10) << g_metrics.timeUnderRain 
+              << " s" << std::setw(23) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Métricas globales de paquetes
+    std::cout << "║ ENTREGA DE PAQUETES (GLOBAL):                                ║\n";
+    std::cout << "║   • Paquetes enviados: " << std::setw(10) << g_metrics.totalPacketsSent 
+              << std::setw(31) << "║\n";
+    std::cout << "║   • Entregados al Super: " << std::setw(10) << g_metrics.packetsDeliveredToSuper 
+              << std::setw(29) << "║\n";
+    std::cout << "║   • Paquetes perdidos: " << std::setw(10) << g_metrics.packetsLost
+              << std::setw(31) << "║\n";
+    std::cout << "║   • PDR (% entrega): " << std::setw(10) << std::setprecision(2) 
+              << g_metrics.GetPDR() << " %" << std::setw(27) << "║\n";
+    std::cout << "║   • Tasa de pérdida: " << std::setw(10) << std::setprecision(2)
+              << g_metrics.GetPacketLossRate() << " %" << std::setw(27) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Latencia global
+    std::cout << "║ LATENCIA (GLOBAL):                                           ║\n";
+    std::cout << "║   • Latencia promedio: " << std::setw(10) << std::setprecision(3) 
+              << g_metrics.GetAverageLatency() << " s" << std::setw(25) << "║\n";
+    std::cout << "║   • Latencia mínima: " << std::setw(10) << std::setprecision(3)
+              << (g_metrics.minLatency == std::numeric_limits<double>::max() ? 0.0 : g_metrics.minLatency)
+              << " s" << std::setw(27) << "║\n";
+    std::cout << "║   • Latencia máxima: " << std::setw(10) << std::setprecision(3)
+              << g_metrics.maxLatency << " s" << std::setw(27) << "║\n";
+    std::cout << "║   • Desviación estándar: " << std::setw(10) << std::setprecision(3)
+              << g_metrics.GetLatencyStdDev() << " s" << std::setw(25) << "║\n";
+    std::cout << "║   • Muestras de latencia: " << std::setw(10) << g_metrics.latencies.size() 
+              << std::setw(29) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Métricas por cluster
+    std::cout << "║ MÉTRICAS POR CLUSTER:                                        ║\n";
+    const char* clusterNames[] = {"A", "B", "C"};
+    for (uint32_t i = 0; i < 3; ++i) {
+        if (g_metrics.clusterMetrics.find(i) != g_metrics.clusterMetrics.end()) {
+            const ClusterMetrics& cm = g_metrics.clusterMetrics[i];
+            std::cout << "║    CLUSTER " << clusterNames[i] << ":                                            ║\n";
+            std::cout << "║     - Enviados: " << std::setw(6) << cm.packetsSent
+                      << " | Entregados: " << std::setw(6) << cm.packetsDelivered
+                      << " | PDR: " << std::setw(5) << std::setprecision(1) << cm.GetPDR() << "%" << std::setw(8) << "║\n";
+            std::cout << "║     - Lat. Prom: " << std::setw(6) << std::setprecision(3) << cm.GetAvgLatency()
+                      << "s | Pérdida: " << std::setw(5) << std::setprecision(1) << cm.GetPacketLossRate() << "%" << std::setw(18) << "║\n";
+        }
+    }
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Conectividad
+    std::cout << "║ CONECTIVIDAD:                                                ║\n";
+    std::cout << "║   • Chequeos totales: " << std::setw(10) << g_metrics.connectivityChecks 
+              << std::setw(32) << "║\n";
+    std::cout << "║   • Conexiones exitosas: " << std::setw(10) << g_metrics.successfulConnections 
+              << std::setw(29) << "║\n";
+    std::cout << "║   • Tasa de conectividad: " << std::setw(10) << std::setprecision(2) 
+              << g_metrics.GetConnectivityRate() << " %" << std::setw(25) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Impacto de lluvia (CORREGIDO)
+    std::cout << "║ IMPACTO DE LLUVIA:                                           ║\n";
+    std::cout << "║   • Paquetes enviados CON lluvia: " << std::setw(10) 
+              << g_metrics.packetsUnderRain << std::setw(21) << "║\n";
+    std::cout << "║   • Entregados (de los CON lluvia): " << std::setw(10) 
+              << g_metrics.deliveredUnderRain << std::setw(19) << "║\n";
+    std::cout << "║   • PDR con lluvia: " << std::setw(10) << std::setprecision(2) 
+              << g_metrics.GetRainPDR() << " %" << std::setw(28) << "║\n";
+    std::cout << "║   • Paquetes enviados SIN lluvia: " << std::setw(10)
+              << g_metrics.packetsSentNoRain << std::setw(21) << "║\n";
+    std::cout << "║   • Entregados (de los SIN lluvia): " << std::setw(10)
+              << g_metrics.deliveredNoRain << std::setw(19) << "║\n";
+    std::cout << "║   • PDR sin lluvia: " << std::setw(10) << std::setprecision(2)
+              << g_metrics.GetNoRainPDR() << " %" << std::setw(26) << "║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    
+    // Drones
+    std::cout << "║ ACTIVIDAD DE DRONES:                                         ║\n";
+    std::cout << "║   • Alarmas generadas: " << std::setw(10) << g_metrics.alarmsTriggers 
+              << std::setw(31) << "║\n";
+    std::cout << "║   • Intercepciones de drones: " << std::setw(10) 
+              << g_metrics.droneInterceptions << std::setw(25) << "║\n";
+    if (g_metrics.alarmsTriggers > 0) {
+        double efficiency = (100.0 * g_metrics.droneInterceptions) / g_metrics.alarmsTriggers;
+        std::cout << "║   • Eficiencia de respuesta: " << std::setw(10) << std::setprecision(2)
+                  << efficiency << " %" << std::setw(24) << "║\n";
+    }
+    std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
+}
+void ExportMetricsToCSV(const std::string& filename, const std::string& scenarioName, 
+                        double simTime, uint32_t nDrones)
+{
+    std::ofstream csvFile;
+    bool fileExists = std::ifstream(filename).good();
+    
+    csvFile.open(filename, std::ios::app);
+    
+    if (!fileExists) {
+        // Escribir encabezados mejorados
+        csvFile << "Escenario,Tiempo_Sim,Num_Drones,"
+                << "Paq_Enviados,Paq_Entregados,Paq_Perdidos,PDR_%,Tasa_Perdida_%,"
+                << "Lat_Prom_s,Lat_Min_s,Lat_Max_s,Lat_StdDev_s,"
+                << "Conectividad_%,"
+                << "Paq_Con_Lluvia,Entregados_Con_Lluvia,PDR_Lluvia_%,"
+                << "Paq_Sin_Lluvia,Entregados_Sin_Lluvia,PDR_Sin_Lluvia_%,"
+                << "ClusterA_Enviados,ClusterA_Entregados,ClusterA_PDR_%,ClusterA_Lat_s,"
+                << "ClusterB_Enviados,ClusterB_Entregados,ClusterB_PDR_%,ClusterB_Lat_s,"
+                << "ClusterC_Enviados,ClusterC_Entregados,ClusterC_PDR_%,ClusterC_Lat_s,"
+                << "Alarmas,Intercepciones,Eficiencia_Drones_%\n";
+    }
+    
+    // Obtener métricas por cluster
+    const ClusterMetrics& cmA = g_metrics.clusterMetrics[0];
+    const ClusterMetrics& cmB = g_metrics.clusterMetrics[1];
+    const ClusterMetrics& cmC = g_metrics.clusterMetrics[2];
+    
+    // Calcular paquetes perdidos (enviados - entregados)
+    g_metrics.packetsLost = g_metrics.totalPacketsSent > g_metrics.packetsDeliveredToSuper 
+        ? g_metrics.totalPacketsSent - g_metrics.packetsDeliveredToSuper 
+        : 0;
+    
+    double droneEfficiency = g_metrics.alarmsTriggers > 0 ? 
+        (100.0 * g_metrics.droneInterceptions / g_metrics.alarmsTriggers) : 0.0;
+    
+    csvFile << scenarioName << ","
+            << simTime << ","
+            << nDrones << ","
+            << g_metrics.totalPacketsSent << ","
+            << g_metrics.packetsDeliveredToSuper << ","
+            << g_metrics.packetsLost << ","
+            << std::fixed << std::setprecision(2) << g_metrics.GetPDR() << ","
+            << std::setprecision(2) << g_metrics.GetPacketLossRate() << ","
+            << std::setprecision(3) << g_metrics.GetAverageLatency() << ","
+            << std::setprecision(3) << (g_metrics.minLatency == std::numeric_limits<double>::max() ? 0.0 : g_metrics.minLatency) << ","
+            << std::setprecision(3) << g_metrics.maxLatency << ","
+            << std::setprecision(3) << g_metrics.GetLatencyStdDev() << ","
+            << std::setprecision(2) << g_metrics.GetConnectivityRate() << ","
+            << g_metrics.packetsUnderRain << ","
+            << g_metrics.deliveredUnderRain << ","
+            << std::setprecision(2) << g_metrics.GetRainPDR() << ","
+            << g_metrics.packetsSentNoRain << ","
+            << g_metrics.deliveredNoRain << ","
+            << std::setprecision(2) << g_metrics.GetNoRainPDR() << ","
+            << cmA.packetsSent << ","
+            << cmA.packetsDelivered << ","
+            << std::setprecision(2) << cmA.GetPDR() << ","
+            << std::setprecision(3) << cmA.GetAvgLatency() << ","
+            << cmB.packetsSent << ","
+            << cmB.packetsDelivered << ","
+            << std::setprecision(2) << cmB.GetPDR() << ","
+            << std::setprecision(3) << cmB.GetAvgLatency() << ","
+            << cmC.packetsSent << ","
+            << cmC.packetsDelivered << ","
+            << std::setprecision(2) << cmC.GetPDR() << ","
+            << std::setprecision(3) << cmC.GetAvgLatency() << ","
+            << g_metrics.alarmsTriggers << ","
+            << g_metrics.droneInterceptions << ","
+            << std::setprecision(2) << droneEfficiency << "\n";
+    
+    csvFile.close();
+    
+    std::cout << " Métricas exportadas a: " << filename << "\n";
+}
+
+void AnalyzeCoverageArea(NodeContainer& nodes, Vector A, Vector B, Vector C)
+{
+    // Calcular área del triángulo formado por A, B, C
+    double areaABC = 0.5 * std::abs(
+        A.x * (B.y - C.y) +
+        B.x * (C.y - A.y) +
+        C.x * (A.y - B.y)
+    );
+    
+    std::cout << "\n ANÁLISIS DE COBERTURA:\n";
+    std::cout << "  • Área total del escenario: " << std::fixed << std::setprecision(2) 
+              << areaABC << " m²\n";
+    std::cout << "  • Nodos totales en la red: " << nodes.GetN() << "\n";
+    std::cout << "  • Densidad de nodos: " << std::setprecision(4) 
+              << (nodes.GetN() / areaABC) * 1000.0 << " nodos/km²\n\n";
+}
+
+// ---------------------------
+//  Main
 // ---------------------------
 int main(int argc, char *argv[])
 {
@@ -1292,16 +1756,20 @@ int main(int argc, char *argv[])
     LogComponentEnable("ManetRecolector", LOG_LEVEL_INFO);
     LogComponentEnable("StoreCarryForward", LOG_LEVEL_INFO);
 
-    double simTime = 120.0;
+    double simTime = 300.0;  // Tiempo de simulación en segundos
     uint32_t nSensors = 9, nClusterHeads = 3;
     uint32_t nRecolector = 1; // [NUEVO] número de drones por CLI
     bool useLeaderSignalPower = false; // [NUEVO]
+    bool enableRain = true; //  Nuevo: activar/desactivar lluvia
+    std::string scenarioName = "Base"; //  Nuevo: nombre del escenario
 
     // [NUEVO] Activable desde línea de comandos
     CommandLine cmd;
     cmd.AddValue("useLeaderSignalPower", "Activa mayor potencia en los líderes de los clusters", useLeaderSignalPower);
     cmd.AddValue("nRecolector", "Número de nodos recolectors (drones)", nRecolector);
     cmd.AddValue("simTime", "Duración de la simulación (s)", simTime);
+    cmd.AddValue("enableRain", "Activar efecto de lluvia (true/false)", enableRain);
+    cmd.AddValue("scenario", "Nombre del escenario para reportes", scenarioName);
     cmd.Parse(argc, argv);
 
     NodeContainer sensors, clusterHeads, recolectors, superCluster;
@@ -1309,6 +1777,12 @@ int main(int argc, char *argv[])
     clusterHeads.Create(nClusterHeads);
     recolectors.Create(nRecolector);
     superCluster.Create(1);
+    
+    // Inicializar métricas de clusters
+    for (uint32_t i = 0; i < nClusterHeads; ++i) {
+        g_metrics.clusterMetrics[i] = ClusterMetrics();
+    }
+    NS_LOG_INFO("Métricas de clusters inicializadas para " << nClusterHeads << " clusters");
 
     // ---------------------------
     // Crear mapa de nodos por cluster
@@ -1326,8 +1800,11 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Guardar en el mapa global
+        // Guardar en el mapa global (por ID de nodo para callbacks)
         g_clusterNodesMap[clusterHeads.Get(i)->GetId()] = clusterNodes;
+        
+        // Guardar TAMBIÉN por índice para métricas (0, 1, 2)
+        g_clusterByIndexMap[i] = clusterNodes;
 
         // Logging
         NS_LOG_INFO("ClusterHead " << i << " tiene " << clusterNodes.GetN() << " nodos.");
@@ -1391,7 +1868,7 @@ int main(int argc, char *argv[])
     InstallUdpServers(sensors, recolectors, superCluster, clusterHeads, simTime);
 
     // Configurar clientes intra-cluster (sensores -> cluster heads)
-    SetupIntraClusterClients(sensors, clusterHeads, interfaces);
+    SetupIntraClusterClients(sensors, clusterHeads, interfaces, simTime);
 
     Ptr<Node> src = sensors.Get(2);
     Ipv4Address destIp = interfaces.GetAddress(7); // dirección IP del nodo destino
@@ -1402,9 +1879,9 @@ int main(int argc, char *argv[])
     ScheduleSendToOtherCluster(src, destIp, port, packetSize, delay);
 
     // -----------------------------------------------------------------
-    // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹
+    //  LÓGICA DE INICIO DE MOVIMIENTO 
     // -----------------------------------------------------------------
-    // 🔹 LÓGICA DE INICIO DE MOVIMIENTO 🔹
+    //  LÓGICA DE INICIO DE MOVIMIENTO 
     for (uint32_t i = 0; i < recolectorMVs.size(); ++i) {
         Ptr<ConstantVelocityMobilityModel> mv = recolectorMVs[i];
 
@@ -1421,7 +1898,7 @@ int main(int argc, char *argv[])
 
 
      // -----------------------------------------------------------------
-    // 🔹 Colores Iniciales (Todos Iguales) 🔹
+    //  Colores Iniciales (Todos Iguales) 
     // -----------------------------------------------------------------
     for (uint32_t i = 0; i < sensors.GetN(); ++i)
     {
@@ -1440,7 +1917,7 @@ int main(int argc, char *argv[])
 
 
     // -----------------------------------------------------------------
-    // 🔹 LÓGICA DE INICIO DE ALARMA 🔹
+    //  LÓGICA DE INICIO DE ALARMA 
     // -----------------------------------------------------------------
     // Programamos la *primera* alarma en un tiempo aleatorio
     double firstAlarmTime = g_rand->GetValue(5.0, 15.0);
@@ -1449,7 +1926,32 @@ int main(int argc, char *argv[])
                         patrolRoute, patrolSpeed, alarmSpeed, simTime);
     
 
-    RunSimulation(simTime);
+    RunSimulation(simTime, enableRain);
+
+    // ---------------------------
+    //  GENERAR REPORTES DE MÉTRICAS
+    // ---------------------------
+    
+    // Imprimir reporte en consola
+    PrintMetricsReport(scenarioName, simTime, nRecolector);
+    
+    // Exportar a CSV
+    std::string csvFilename = "metricas_simulacion.csv";
+    ExportMetricsToCSV(csvFilename, scenarioName, simTime, nRecolector);
+    
+    // Análisis de cobertura
+    NodeContainer allNodes;
+    allNodes.Add(sensors);
+    allNodes.Add(clusterHeads);
+    allNodes.Add(recolectors);
+    allNodes.Add(superCluster);
+    AnalyzeCoverageArea(allNodes, A, B, C);
+    
+    std::cout << "\n Simulación completada exitosamente.\n";
+    std::cout << " Para ejecutar diferentes escenarios:\n";
+    std::cout << "   • Sin lluvia: ./ns3 run \"scratch/adhoc --enableRain=false --scenario=SinLluvia\"\n";
+    std::cout << "   • Más drones: ./ns3 run \"scratch/adhoc --nRecolector=3 --scenario=3Drones\"\n";
+    std::cout << "   • Tiempo largo: ./ns3 run \"scratch/adhoc --simTime=600 --scenario=600s\"\n\n";
 
     return 0;
 }
